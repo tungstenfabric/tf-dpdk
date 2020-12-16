@@ -28,4 +28,9 @@ ifeq ($(CONFIG_RTE_LIBRTE_EVENTDEV),y)
 DIRS-$(CONFIG_RTE_APP_EVENTDEV) += test-eventdev
 endif
 
+DIRS-y += n3kflow-dump
+DIRS-y += n3kflow-test
+DIRS-y += test-n3k-flows
+DIRS-y += n3k-flr-test-app
+
 include $(RTE_SDK)/mk/rte.subdir.mk

@@ -1072,7 +1072,8 @@ ifcvf_get_vdpa_features(int did, uint64_t *features)
 		 1ULL << VHOST_USER_PROTOCOL_F_SLAVE_REQ | \
 		 1ULL << VHOST_USER_PROTOCOL_F_SLAVE_SEND_FD | \
 		 1ULL << VHOST_USER_PROTOCOL_F_HOST_NOTIFIER | \
-		 1ULL << VHOST_USER_PROTOCOL_F_LOG_SHMFD)
+		 1ULL << VHOST_USER_PROTOCOL_F_LOG_SHMFD | \
+		 1ULL << VHOST_USER_PROTOCOL_F_MQ)
 static int
 ifcvf_get_protocol_features(int did __rte_unused, uint64_t *features)
 {
@@ -1174,7 +1175,8 @@ ifcvf_pci_probe(struct rte_pci_driver *pci_drv __rte_unused,
 		(1ULL << VIRTIO_NET_F_CTRL_VQ) |
 		(1ULL << VIRTIO_NET_F_STATUS) |
 		(1ULL << VHOST_USER_F_PROTOCOL_FEATURES) |
-		(1ULL << VHOST_F_LOG_ALL);
+		(1ULL << VHOST_F_LOG_ALL) |
+		(1ULL << VIRTIO_NET_F_MQ);
 
 	internal->dev_addr.pci_addr = pci_dev->addr;
 	internal->dev_addr.type = PCI_ADDR;
@@ -1255,6 +1257,13 @@ static const struct rte_pci_id pci_id_ifcvf_map[] = {
 	  .device_id = IFCVF_DEVICE_ID,
 	  .subsystem_vendor_id = IFCVF_SUBSYS_VENDOR_ID,
 	  .subsystem_device_id = IFCVF_SUBSYS_DEVICE_ID,
+	},
+
+	{ .class_id = RTE_CLASS_ANY_ID,
+	  .vendor_id = IFCVF_VENDOR_ID,
+	  .device_id = IFCVF_DEVICE_ID,
+	  .subsystem_vendor_id = IFCVF_SUBSYS_VENDOR_ID,
+	  .subsystem_device_id = N3KVF_SUBSYS_DEVICE_ID,
 	},
 
 	{ .vendor_id = 0, /* sentinel */

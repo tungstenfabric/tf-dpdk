@@ -8061,6 +8061,10 @@ static void cmd_mac_addr_parsed(void *parsed_result,
 	else
 		ret = rte_eth_dev_mac_addr_remove(res->port_num, &res->address);
 
+	if (!ret)
+		ret = rte_eth_macaddr_get(
+			res->port_num, &ports[res->port_num].eth_addr);
+
 	/* check the return value and print it if is < 0 */
 	if(ret < 0)
 		printf("mac_addr_cmd error: (%s)\n", strerror(-ret));

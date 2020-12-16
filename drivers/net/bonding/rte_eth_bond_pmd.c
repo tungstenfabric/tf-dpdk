@@ -68,6 +68,9 @@ bond_ethdev_rx_burst(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts)
 	/* Cast to structure, containing bonded device's port id and queue id */
 	struct bond_rx_queue *bd_rx_q = (struct bond_rx_queue *)queue;
 	internals = bd_rx_q->dev_private;
+
+	rte_spinlock_lock(&internals->rxtx_lock);
+
 	slave_count = internals->active_slave_count;
 	active_slave = internals->active_slave;
 
@@ -88,6 +91,9 @@ bond_ethdev_rx_burst(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts)
 
 	if (++internals->active_slave >= slave_count)
 		internals->active_slave = 0;
+
+	rte_spinlock_unlock(&internals->rxtx_lock);
+
 	return num_rx_total;
 }
 
@@ -297,6 +303,8 @@ rx_burst_8023ad(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts,
 	uint16_t j;
 	uint16_t k;
 
+	rte_spinlock_lock(&internals->rxtx_lock);
+
 	/* Copy slave list to protect against slave up/down changes during tx
 	 * bursting */
 	slave_count = internals->active_slave_count;
@@ -369,6 +377,8 @@ rx_burst_8023ad(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts,
 
 	if (++internals->active_slave >= slave_count)
 		internals->active_slave = 0;
+
+	rte_spinlock_unlock(&internals->rxtx_lock);
 
 	return num_rx_total;
 }
@@ -3182,7 +3192,7 @@ static int
 bond_alloc(struct rte_vdev_device *dev, uint8_t mode)
 {
 	const char *name = rte_vdev_device_name(dev);
-	uint8_t socket_id = dev->device.numa_node;
+	int socket_id = dev->device.numa_node;
 	struct bond_dev_private *internals = NULL;
 	struct rte_eth_dev *eth_dev = NULL;
 	uint32_t vlan_filter_bmp_size;
@@ -3217,6 +3227,7 @@ bond_alloc(struct rte_vdev_device *dev, uint8_t mode)
 
 	rte_spinlock_init(&internals->lock);
 	rte_spinlock_init(&internals->lsc_lock);
+	rte_spinlock_init(&internals->rxtx_lock);
 
 	internals->port_id = eth_dev->data->port_id;
 	internals->mode = BONDING_MODE_INVALID;
@@ -3303,7 +3314,8 @@ bond_probe(struct rte_vdev_device *dev)
 	const char *name;
 	struct bond_dev_private *internals;
 	struct rte_kvargs *kvlist;
-	uint8_t bonding_mode, socket_id/*, agg_mode*/;
+	uint8_t bonding_mode /*, agg_mode*/;
+	int socket_id;
 	int  arg_count, port_id;
 	uint8_t agg_mode;
 	struct rte_eth_dev *eth_dev;

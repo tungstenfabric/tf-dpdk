@@ -55,6 +55,11 @@ find_port_id_by_dev_name(const char *name)
 		if (strcmp(rte_eth_devices[i].device->name, name) == 0)
 			return i;
 	}
+
+	struct rte_eth_dev *eth_dev = rte_eth_dev_allocated(name);
+	if (eth_dev)
+		return eth_dev->data->port_id;
+
 	return -1;
 }
 
