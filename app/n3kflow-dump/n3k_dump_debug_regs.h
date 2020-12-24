@@ -1,0 +1,23 @@
+/* SPDX-License-Identifier: BSD-3-Clause
+ * Copyright(c) HCL TECHNOLOGIES LTD
+ * Submitted on behalf of a third-party: Intel Corporation, a
+ * Delaware corporation, having its principal place of business
+ * at 2200 Mission College Boulevard,
+ * Santa Clara, California 95052, USA
+ */
+
+#ifndef _N3K_DUMP_DEBUG_REGS_H_
+#define _N3K_DUMP_DEBUG_REGS_H_
+
+#include <stddef.h>
+
+struct regs_description {
+	size_t base;
+	size_t offset;
+	const char *name;
+};
+
+extern const struct regs_description debug_regs[];
+extern const size_t debug_regs_size;
+
+#endif /* _N3K_DUMP_DEBUG_REGS_H_ */

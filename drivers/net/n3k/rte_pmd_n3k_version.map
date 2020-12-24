@@ -1,0 +1,7 @@
+DPDK_19.08 {
+	global:
+	rte_pmd_n3k_get_repr_id_by_port_id;
+	rte_pmd_n3k_get_vdpa_did_by_repr_name;
+
+	local: *;
+};

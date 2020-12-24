@@ -112,6 +112,7 @@ struct bond_dev_private {
 
 	rte_spinlock_t lock;
 	rte_spinlock_t lsc_lock;
+	rte_spinlock_t rxtx_lock;
 
 	uint16_t primary_port;			/**< Primary Slave Port */
 	uint16_t current_primary_port;		/**< Primary Slave Port */

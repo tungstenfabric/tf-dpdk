@@ -97,7 +97,9 @@ bond_flow_create(struct rte_eth_dev *dev, const struct rte_flow_attr *attr,
 				   NULL, rte_strerror(ENOMEM));
 		return NULL;
 	}
-	for (i = 0; i < internals->slave_count; i++) {
+
+	/* TODO: Implement properly for N3000 and revert this */
+	for (i = 0; i < 1 /* internals->slave_count */; i++) {
 		flow->flows[i] = rte_flow_create(internals->slaves[i].port_id,
 						 attr, patterns, actions, err);
 		if (unlikely(flow->flows[i] == NULL)) {
@@ -110,7 +112,7 @@ bond_flow_create(struct rte_eth_dev *dev, const struct rte_flow_attr *attr,
 	return flow;
 err:
 	/* Destroy all slaves flows. */
-	for (i = 0; i < internals->slave_count; i++) {
+	for (i = 0; i < 1 /* internals->slave_count */; i++) {
 		if (flow->flows[i] != NULL)
 			rte_flow_destroy(internals->slaves[i].port_id,
 					 flow->flows[i], err);
@@ -181,7 +183,9 @@ bond_flow_query_count(struct rte_eth_dev *dev, struct rte_flow *flow,
 	count->bytes = 0;
 	count->hits = 0;
 	rte_memcpy(&slave_count, count, sizeof(slave_count));
-	for (i = 0; i < internals->slave_count; i++) {
+
+	/* TODO: Implement properly for N3000 and revert this */
+	for (i = 0; i < 1 /* internals->slave_count */; i++) {
 		ret = rte_flow_query(internals->slaves[i].port_id,
 				     flow->flows[i], action,
 				     &slave_count, err);
@@ -221,7 +225,8 @@ bond_flow_isolate(struct rte_eth_dev *dev, int set,
 	int i;
 	int ret;
 
-	for (i = 0; i < internals->slave_count; i++) {
+	/* TODO: Implement properly for N3000 and revert this */
+	for (i = 0; i < 1 /* internals->slave_count */; i++) {
 		ret = rte_flow_isolate(internals->slaves[i].port_id, set, err);
 		if (unlikely(ret != 0)) {
 			RTE_BOND_LOG(ERR, "Operation rte_flow_isolate failed"

@@ -2004,6 +2004,11 @@ enum rte_flow_action_type {
 	 * See struct rte_flow_action_set_meta.
 	 */
 	RTE_FLOW_ACTION_TYPE_SET_META,
+
+	/**
+	 * Mirror a packet to a VF or a physical port.
+	 */
+	RTE_FLOW_ACTION_TYPE_MIRROR,
 };
 
 /**
@@ -2528,6 +2533,17 @@ struct rte_flow_action_set_tag {
 struct rte_flow_action_set_meta {
 	uint32_t data;
 	uint32_t mask;
+};
+
+/**
+ * RTE_FLOW_ACTION_TYPE_MIRROR
+ *
+ * Mirror a packet to a VF or a physical port
+ * Decides whether the packet will be mirrored after modifications or before them
+ */
+struct rte_flow_action_mirror {
+	uint32_t port;
+	uint8_t mirror_modified;
 };
 
 /* Mbuf dynamic field offset for metadata. */
