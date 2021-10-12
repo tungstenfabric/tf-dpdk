@@ -13,7 +13,13 @@
 #define IFCVF_SUBSYS_DEVICE_ID	0x001A
 
 #define IFCVF_MAX_QUEUES		1
+
+/* in rhel8 defined in kernel-headers-4.18.0-305.19.1.el8_4.x86_64
+/usr/include/linux/virtio_config.h
+*/
+#ifndef VIRTIO_F_IOMMU_PLATFORM
 #define VIRTIO_F_IOMMU_PLATFORM		33
+#endif
 
 /* Common configuration */
 #define IFCVF_PCI_CAP_COMMON_CFG	1
