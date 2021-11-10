@@ -9,7 +9,6 @@
 #include <sys/ioctl.h>
 #include <sys/epoll.h>
 #include <linux/virtio_net.h>
-#include <stdbool.h>
 
 #include <rte_malloc.h>
 #include <rte_memory.h>
@@ -50,6 +49,7 @@ struct ifcvf_internal {
 	struct rte_vdpa_dev_addr dev_addr;
 	struct rte_pci_device *pdev;
 	struct ifcvf_hw hw;
+	int configured;
 	int vfio_container_fd;
 	int vfio_group_fd;
 	int vfio_dev_fd;
@@ -896,6 +896,7 @@ ifcvf_dev_config(int vid)
 	if (rte_vhost_host_notifier_ctrl(vid, true) != 0)
 		DRV_LOG(NOTICE, "vDPA (%d): software relay is used.", did);
 
+	internal->configured = 1;
 	return 0;
 }
 
@@ -934,6 +935,7 @@ ifcvf_dev_close(int vid)
 		update_datapath(internal);
 	}
 
+	internal->configured = 0;
 	return 0;
 }
 
@@ -1072,11 +1074,59 @@ ifcvf_get_vdpa_features(int did, uint64_t *features)
 		 1ULL << VHOST_USER_PROTOCOL_F_SLAVE_REQ | \
 		 1ULL << VHOST_USER_PROTOCOL_F_SLAVE_SEND_FD | \
 		 1ULL << VHOST_USER_PROTOCOL_F_HOST_NOTIFIER | \
-		 1ULL << VHOST_USER_PROTOCOL_F_LOG_SHMFD)
+		 1ULL << VHOST_USER_PROTOCOL_F_LOG_SHMFD | \
+		 1ULL << VHOST_USER_PROTOCOL_F_MQ)
 static int
 ifcvf_get_protocol_features(int did __rte_unused, uint64_t *features)
 {
 	*features = VDPA_SUPPORTED_PROTOCOL_FEATURES;
+	return 0;
+}
+
+static int
+ifcvf_set_vring_state(int vid, int vring, int state)
+{
+	struct internal_list *list;
+	struct ifcvf_internal *internal;
+	struct ifcvf_hw *hw;
+	struct ifcvf_pci_common_cfg *cfg;
+	int ret = 0, did = -1;
+
+	did = rte_vhost_get_vdpa_device_id(vid);
+	list = find_internal_resource_by_did(did);
+	if (list == NULL) {
+		DRV_LOG(ERR, "Invalid vDPA device: %d", vid);
+		return -1;
+	}
+
+	internal = list->internal;
+	if (vring < 0 || vring >= internal->max_queues * 2) {
+		DRV_LOG(ERR, "Vring index %d not correct", vring);
+		return -1;
+	}
+
+	hw = &internal->hw;
+	if (!internal->configured)
+		goto exit;
+
+	cfg = hw->common_cfg;
+	IFCVF_WRITE_REG16(vring, &cfg->queue_select);
+	IFCVF_WRITE_REG16(!!state, &cfg->queue_enable);
+
+	if (!state && hw->vring[vring].enable) {
+		ret = vdpa_disable_vfio_intr(internal);
+		if (ret)
+			return ret;
+	}
+
+	if (state && !hw->vring[vring].enable) {
+		ret = vdpa_enable_vfio_intr(internal, 0);
+		if (ret)
+			return ret;
+	}
+
+exit:
+	hw->vring[vring].enable = !!state;
 	return 0;
 }
 
@@ -1086,7 +1136,7 @@ static struct rte_vdpa_dev_ops ifcvf_ops = {
 	.get_protocol_features = ifcvf_get_protocol_features,
 	.dev_conf = ifcvf_dev_config,
 	.dev_close = ifcvf_dev_close,
-	.set_vring_state = NULL,
+	.set_vring_state = ifcvf_set_vring_state,
 	.set_features = ifcvf_set_features,
 	.migration_done = NULL,
 	.get_vfio_group_fd = ifcvf_get_vfio_group_fd,
@@ -1166,6 +1216,7 @@ ifcvf_pci_probe(struct rte_pci_driver *pci_drv __rte_unused,
 		goto error;
 	}
 
+	internal->configured = 0;
 	internal->max_queues = IFCVF_MAX_QUEUES;
 	features = ifcvf_get_features(&internal->hw);
 	internal->features = (features &
@@ -1174,7 +1225,8 @@ ifcvf_pci_probe(struct rte_pci_driver *pci_drv __rte_unused,
 		(1ULL << VIRTIO_NET_F_CTRL_VQ) |
 		(1ULL << VIRTIO_NET_F_STATUS) |
 		(1ULL << VHOST_USER_F_PROTOCOL_FEATURES) |
-		(1ULL << VHOST_F_LOG_ALL);
+		(1ULL << VHOST_F_LOG_ALL) |
+		(1ULL << VIRTIO_NET_F_MQ);
 
 	internal->dev_addr.pci_addr = pci_dev->addr;
 	internal->dev_addr.type = PCI_ADDR;
@@ -1255,6 +1307,13 @@ static const struct rte_pci_id pci_id_ifcvf_map[] = {
 	  .device_id = IFCVF_DEVICE_ID,
 	  .subsystem_vendor_id = IFCVF_SUBSYS_VENDOR_ID,
 	  .subsystem_device_id = IFCVF_SUBSYS_DEVICE_ID,
+	},
+
+	{ .class_id = RTE_CLASS_ANY_ID,
+	  .vendor_id = IFCVF_VENDOR_ID,
+	  .device_id = IFCVF_DEVICE_ID,
+	  .subsystem_vendor_id = IFCVF_SUBSYS_VENDOR_ID,
+	  .subsystem_device_id = N3KVF_SUBSYS_DEVICE_ID,
 	},
 
 	{ .vendor_id = 0, /* sentinel */

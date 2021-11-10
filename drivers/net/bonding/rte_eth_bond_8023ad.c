@@ -1540,11 +1540,10 @@ rte_eth_bond_8023ad_slave_info(uint16_t port_id, uint16_t slave_id,
 }
 
 static int
-bond_8023ad_ext_validate(uint16_t port_id, uint16_t slave_id)
+bond_8023ad_validate_common(uint16_t port_id, uint16_t slave_id)
 {
 	struct rte_eth_dev *bond_dev;
 	struct bond_dev_private *internals;
-	struct mode8023ad_private *mode4;
 
 	if (rte_eth_bond_mode_get(port_id) != BONDING_MODE_8023AD)
 		return -EINVAL;
@@ -1560,11 +1559,34 @@ bond_8023ad_ext_validate(uint16_t port_id, uint16_t slave_id)
 				internals->active_slave_count)
 		return -EINVAL;
 
+	return 0;
+}
+
+static int
+bond_8023ad_ext_validate(uint16_t port_id, uint16_t slave_id)
+{
+	struct mode8023ad_private *mode4;
+	struct rte_eth_dev *bond_dev;
+	struct bond_dev_private *internals;
+	int ret;
+
+	ret = bond_8023ad_validate_common(port_id, slave_id);
+	if (ret != 0)
+		return ret;
+
+	bond_dev = &rte_eth_devices[port_id];
+	internals = bond_dev->data->dev_private;
 	mode4 = &internals->mode4;
 	if (mode4->slowrx_cb == NULL)
 		return -EINVAL;
 
 	return 0;
+}
+
+static int
+bond_8023ad_validate(uint16_t port_id, uint16_t slave_id)
+{
+	return bond_8023ad_validate_common(port_id, slave_id);
 }
 
 int
@@ -1624,12 +1646,40 @@ rte_eth_bond_8023ad_ext_distrib_get(uint16_t port_id, uint16_t slave_id)
 }
 
 int
+rte_eth_bond_8023ad_distrib_get(uint16_t port_id, uint16_t slave_id)
+{
+	struct port *port;
+	int err;
+
+	err = bond_8023ad_validate(port_id, slave_id);
+	if (err != 0)
+		return err;
+
+	port = &bond_mode_8023ad_ports[slave_id];
+	return ACTOR_STATE(port, DISTRIBUTING);
+}
+
+int
 rte_eth_bond_8023ad_ext_collect_get(uint16_t port_id, uint16_t slave_id)
 {
 	struct port *port;
 	int err;
 
 	err = bond_8023ad_ext_validate(port_id, slave_id);
+	if (err != 0)
+		return err;
+
+	port = &bond_mode_8023ad_ports[slave_id];
+	return ACTOR_STATE(port, COLLECTING);
+}
+
+int
+rte_eth_bond_8023ad_collect_get(uint16_t port_id, uint16_t slave_id)
+{
+	struct port *port;
+	int err;
+
+	err = bond_8023ad_validate(port_id, slave_id);
 	if (err != 0)
 		return err;
 

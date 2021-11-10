@@ -6,9 +6,12 @@ if is_windows
 endif
 
 apps = [
+	'n3kflow-dump',
+	'n3k-flr-test-app',
 	'pdump',
 	'proc-info',
 	'test-acl',
+	'test-n3k-flows',
 	'test-bbdev',
 	'test-cmdline',
 	'test-compress-perf',
@@ -46,6 +49,7 @@ foreach app:apps
 			dep_objs += get_variable(get_option('default_library')
 				 + '_rte_' + d)
 		endforeach
+		dep_objs += ext_deps
 		dep_objs += lib_execinfo
 
 		link_libs = []
@@ -65,6 +69,11 @@ foreach app:apps
 				install_rpath: join_paths(get_option('prefix'),
 						 driver_install_path),
 				install: true)
+	else
+		if reason != ''
+			dpdk_apps_disabled += app
+			set_variable(app.underscorify() + '_disable_reason', reason)
+		endif
 	endif
 endforeach
 

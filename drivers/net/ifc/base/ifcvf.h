@@ -11,8 +11,9 @@
 #define IFCVF_DEVICE_ID		0x1041
 #define IFCVF_SUBSYS_VENDOR_ID	0x8086
 #define IFCVF_SUBSYS_DEVICE_ID	0x001A
+#define N3KVF_SUBSYS_DEVICE_ID	0xE001
 
-#define IFCVF_MAX_QUEUES		1
+#define IFCVF_MAX_QUEUES		16
 
 /* in rhel8 defined in kernel-headers-4.18.0-305.19.1.el8_4.x86_64
 /usr/include/linux/virtio_config.h
@@ -121,6 +122,7 @@ struct vring_info {
 	u16 size;
 	u16 last_avail_idx;
 	u16 last_used_idx;
+	bool enable;
 };
 
 struct ifcvf_hw {

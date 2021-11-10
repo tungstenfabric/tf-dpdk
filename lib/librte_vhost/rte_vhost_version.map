@@ -13,6 +13,7 @@ DPDK_20.0 {
 	rte_vhost_driver_unregister;
 	rte_vhost_enable_guest_notification;
 	rte_vhost_enqueue_burst;
+	rte_vhost_get_active_vring_num;
 	rte_vhost_get_ifname;
 	rte_vhost_get_mem_table;
 	rte_vhost_get_mtu;

@@ -202,7 +202,8 @@ rte_eth_bond_8023ad_slave_info(uint16_t port_id, uint16_t slave_id,
 #endif
 
 /**
- * Configure a slave port to start collecting.
+ * Configure a slave port to start collecting for external 802.3ad state
+ * machine.
  *
  * @param port_id	Bonding device id
  * @param slave_id	Port id of valid slave.
@@ -216,7 +217,8 @@ rte_eth_bond_8023ad_ext_collect(uint16_t port_id, uint16_t slave_id,
 				int enabled);
 
 /**
- * Get COLLECTING flag from slave port actor state.
+ * Get COLLECTING flag from slave port actor state for external 802.3ad state
+ * machine.
  *
  * @param port_id	Bonding device id
  * @param slave_id	Port id of valid slave.
@@ -229,7 +231,21 @@ int
 rte_eth_bond_8023ad_ext_collect_get(uint16_t port_id, uint16_t slave_id);
 
 /**
- * Configure a slave port to start distributing.
+ * Get COLLECTING flag from slave port actor state.
+ *
+ * @param port_id	Bonding device id
+ * @param slave_id	Port id of valid slave.
+ * @return
+ *   0 - if not set
+ *   1 - if set
+ *   -EINVAL if slave is not valid.
+ */
+int
+rte_eth_bond_8023ad_collect_get(uint16_t port_id, uint16_t slave_id);
+
+/**
+ * Configure a slave port to start distributing for external 802.3ad state
+ * machine.
  *
  * @param port_id	Bonding device id
  * @param slave_id	Port id of valid slave.
@@ -243,7 +259,8 @@ rte_eth_bond_8023ad_ext_distrib(uint16_t port_id, uint16_t slave_id,
 				int enabled);
 
 /**
- * Get DISTRIBUTING flag from slave port actor state.
+ * Get DISTRIBUTING flag from slave port actor state for external 802.3ad state
+ * machine.
  *
  * @param port_id	Bonding device id
  * @param slave_id	Port id of valid slave.
@@ -254,6 +271,19 @@ rte_eth_bond_8023ad_ext_distrib(uint16_t port_id, uint16_t slave_id,
  */
 int
 rte_eth_bond_8023ad_ext_distrib_get(uint16_t port_id, uint16_t slave_id);
+
+/**
+ * Get DISTRIBUTING flag from slave port actor state.
+ *
+ * @param port_id	Bonding device id
+ * @param slave_id	Port id of valid slave.
+ * @return
+ *   0 - if not set
+ *   1 - if set
+ *   -EINVAL if slave is not valid.
+ */
+int
+rte_eth_bond_8023ad_distrib_get(uint16_t port_id, uint16_t slave_id);
 
 /**
  * LACPDU transmit path for external 802.3ad state machine.  Caller retains

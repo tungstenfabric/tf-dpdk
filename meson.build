@@ -22,6 +22,7 @@ dpdk_extra_ldflags = []
 dpdk_app_link_libraries = []
 dpdk_libs_disabled = []
 dpdk_drvs_disabled = []
+dpdk_apps_disabled = []
 abi_version_file = files('ABI_VERSION')
 
 # configure the build, and make sure configs here and in config folder are
@@ -127,4 +128,12 @@ foreach drv:dpdk_drvs_disabled
 	reason = get_variable(drv.underscorify() + '_disable_reason')
 	output_message += drv + ':\t' + reason + '\n\t'
 endforeach
+
+if dpdk_apps_disabled.length() > 0
+  output_message += '\napps:\n\t'
+  foreach app:dpdk_apps_disabled
+      reason = get_variable(app.underscorify() + '_disable_reason')
+      output_message += app + ':\t' + reason + '\n\t'
+  endforeach
+endif
 message(output_message + '\n')

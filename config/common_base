@@ -488,6 +488,11 @@ CONFIG_RTE_LIBRTE_MVPP2_PMD=n
 CONFIG_RTE_LIBRTE_MVNETA_PMD=n
 
 #
+# Compile N3000 PMD driver
+#
+CONFIG_RTE_LIBRTE_N3K_PMD=n
+
+#
 # Compile support for VMBus library
 #
 CONFIG_RTE_LIBRTE_VMBUS=n

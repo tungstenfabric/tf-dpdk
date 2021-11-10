@@ -102,7 +102,7 @@ activate_slave(struct rte_eth_dev *eth_dev, uint16_t port_id)
 void
 deactivate_slave(struct rte_eth_dev *eth_dev, uint16_t port_id)
 {
-	uint16_t slave_pos;
+	uint16_t idx, slave_pos;
 	struct bond_dev_private *internals = eth_dev->data->dev_private;
 	uint16_t active_count = internals->active_slave_count;
 
@@ -132,8 +132,10 @@ deactivate_slave(struct rte_eth_dev *eth_dev, uint16_t port_id)
 	/* Resetting active_slave when reaches to max
 	 * no of slaves in active list
 	 */
-	if (internals->active_slave >= active_count)
-		internals->active_slave = 0;
+	for (idx = 0; idx < RTE_MAX_QUEUES_PER_PORT; idx++) {
+		if (internals->active_slave_per_queue[idx] >= active_count)
+			internals->active_slave_per_queue[idx] = 0;
+	}
 
 	if (eth_dev->data->dev_started) {
 		if (internals->mode == BONDING_MODE_8023AD) {

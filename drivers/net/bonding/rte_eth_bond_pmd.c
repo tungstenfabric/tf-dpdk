@@ -68,8 +68,9 @@ bond_ethdev_rx_burst(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts)
 	/* Cast to structure, containing bonded device's port id and queue id */
 	struct bond_rx_queue *bd_rx_q = (struct bond_rx_queue *)queue;
 	internals = bd_rx_q->dev_private;
+
 	slave_count = internals->active_slave_count;
-	active_slave = internals->active_slave;
+	active_slave = internals->active_slave_per_queue[bd_rx_q->queue_id];
 
 	for (i = 0; i < slave_count && nb_pkts; i++) {
 		uint16_t num_rx_slave;
@@ -86,8 +87,9 @@ bond_ethdev_rx_burst(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts)
 			active_slave = 0;
 	}
 
-	if (++internals->active_slave >= slave_count)
-		internals->active_slave = 0;
+	if (++internals->active_slave_per_queue[bd_rx_q->queue_id] >= slave_count)
+		internals->active_slave_per_queue[bd_rx_q->queue_id] = 0;
+
 	return num_rx_total;
 }
 
@@ -226,6 +228,14 @@ bond_8023ad_slow_pkt_hw_filter_supported(uint16_t port_id) {
 			return ret;
 		}
 
+		if (bond_info.nb_rx_queues >= bond_info.max_rx_queues
+				|| bond_info.nb_tx_queues >= bond_info.max_tx_queues) {
+			RTE_BOND_LOG(ERR,
+				"%s: Bond %u doesn't allow additional queue\n",
+				__func__, bond_dev->data->port_id);
+			return -EINVAL;
+		}
+
 		internals->mode4.dedicated_queues.rx_qid = bond_info.nb_rx_queues;
 		internals->mode4.dedicated_queues.tx_qid = bond_info.nb_tx_queues;
 
@@ -303,9 +313,9 @@ rx_burst_8023ad(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts,
 	memcpy(slaves, internals->active_slaves,
 			sizeof(internals->active_slaves[0]) * slave_count);
 
-	idx = internals->active_slave;
+	idx = internals->active_slave_per_queue[bd_rx_q->queue_id];
 	if (idx >= slave_count) {
-		internals->active_slave = 0;
+		internals->active_slave_per_queue[bd_rx_q->queue_id] = 0;
 		idx = 0;
 	}
 	for (i = 0; i < slave_count && num_rx_total < nb_pkts; i++) {
@@ -367,8 +377,8 @@ rx_burst_8023ad(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts,
 			idx = 0;
 	}
 
-	if (++internals->active_slave >= slave_count)
-		internals->active_slave = 0;
+	if (++internals->active_slave_per_queue[bd_rx_q->queue_id] >= slave_count)
+		internals->active_slave_per_queue[bd_rx_q->queue_id] = 0;
 
 	return num_rx_total;
 }
@@ -3182,7 +3192,7 @@ static int
 bond_alloc(struct rte_vdev_device *dev, uint8_t mode)
 {
 	const char *name = rte_vdev_device_name(dev);
-	uint8_t socket_id = dev->device.numa_node;
+	int socket_id = dev->device.numa_node;
 	struct bond_dev_private *internals = NULL;
 	struct rte_eth_dev *eth_dev = NULL;
 	uint32_t vlan_filter_bmp_size;
@@ -3303,7 +3313,8 @@ bond_probe(struct rte_vdev_device *dev)
 	const char *name;
 	struct bond_dev_private *internals;
 	struct rte_kvargs *kvlist;
-	uint8_t bonding_mode, socket_id/*, agg_mode*/;
+	uint8_t bonding_mode /*, agg_mode*/;
+	int socket_id;
 	int  arg_count, port_id;
 	uint8_t agg_mode;
 	struct rte_eth_dev *eth_dev;
