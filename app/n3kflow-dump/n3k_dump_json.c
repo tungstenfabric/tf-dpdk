@@ -29,6 +29,21 @@ static const char *tunnel_type_to_str(enum n3k_mgmt_tunnel_type type)
 	return "UNKNOWN-TUNNEL-TYPE";
 }
 
+static const char *vlan_type_to_str(enum n3k_mgmt_flow_tbl_vlan_tag_type type)
+{
+	switch (type) {
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_NONE:
+		return "none";
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT:
+		return "insert";
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD:
+		return "modify";
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP:
+		return "strip";
+	}
+	return "unknown-type";
+}
+
 static const char *flow_tbl_l3_type_to_str(enum n3k_mgmt_flow_tbl_l3_type type)
 {
 	switch (type) {
@@ -186,6 +201,18 @@ static void json_flow_key_dump(
 			json_flow_key_l2, "dmac",
 			json_object_new_string(
 				n3k_dump_convert_mac_to_str(str_buff, key->l2.dst_mac)));
+
+		if (key->l2.vlan_tci != 0) {
+			json_object *json_flow_key_vlan = json_object_new_object();
+			json_object_object_add(json_flow_key, "vlan",
+				json_flow_key_vlan);
+			json_object_object_add(
+				json_flow_key_vlan, "vid",
+					json_object_new_int(key->l2.vlan_tci & 0xFFF));
+			json_object_object_add(
+				json_flow_key_vlan, "pcp",
+					json_object_new_int(key->l2.vlan_tci >> 13));
+		}
 	}
 
 	// L3
@@ -194,33 +221,29 @@ static void json_flow_key_dump(
 		flow_tbl_l3_type_to_str(key->l3.type),
 		json_flow_key_l3);
 	switch (key->l3.type) {
-        case N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6:
-            json_object_object_add(
-                json_flow_key_l3, "src",
-                json_object_new_string(n3k_mgmt_convert_ipv6_to_str(
-                    str_buff,
-                    key->l3.ipv6.src_ip)));
+	case N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6:
+		json_object_object_add(
+			json_flow_key_l3, "src",
+			json_object_new_string(n3k_mgmt_convert_ipv6_to_str(
+				str_buff, key->l3.ipv6.src_ip)));
 
-            json_object_object_add(
-                json_flow_key_l3, "dst",
-                json_object_new_string(n3k_mgmt_convert_ipv6_to_str(
-                    str_buff,
-                    key->l3.ipv6.dst_ip)));
-            break;
+		json_object_object_add(
+			json_flow_key_l3, "dst",
+			json_object_new_string(n3k_mgmt_convert_ipv6_to_str(
+				str_buff, key->l3.ipv6.dst_ip)));
+		break;
 
-        case N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4:
-            json_object_object_add(
-                json_flow_key_l3, "src",
-                json_object_new_string(n3k_dump_convert_ip_to_str(
-                    str_buff,
-                    key->l3.ipv4.src_ip)));
+	case N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4:
+		json_object_object_add(
+			json_flow_key_l3, "src",
+			json_object_new_string(n3k_dump_convert_ip_to_str(
+				str_buff, key->l3.ipv4.src_ip)));
 
-            json_object_object_add(
-                json_flow_key_l3, "dst",
-                json_object_new_string(n3k_dump_convert_ip_to_str(
-                    str_buff,
-                    key->l3.ipv4.dst_ip)));
-            break;
+		json_object_object_add(
+			json_flow_key_l3, "dst",
+			json_object_new_string(n3k_dump_convert_ip_to_str(
+				str_buff, key->l3.ipv4.dst_ip)));
+		break;
 	}
 
 	// L4
@@ -459,6 +482,26 @@ static void json_flow_action_dump(
 			(action->nat_type == N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT) ? "src_ip" : "dst_ip",
 			json_object_new_string(n3k_dump_convert_ip_to_str(
 				str_buff, action->nat.modified_ip)));
+	}
+
+	if (action->vlan.type != N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_NONE) {
+		json_object *json_flow_vlan = json_object_new_object();
+		json_object_object_add(json_flow_action, "vlan", json_flow_vlan);
+		json_object_object_add(
+			json_flow_vlan,
+			"type",
+			json_object_new_string(vlan_type_to_str(action->vlan.type)));
+
+		if (action->vlan.type != N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP) {
+			json_object_object_add(
+				json_flow_vlan,
+				"vid",
+				json_object_new_int(action->vlan.tci & 0xFFF));
+			json_object_object_add(
+				json_flow_vlan,
+				"pcp",
+				json_object_new_int(action->vlan.tci >> 13));
+		}
 	}
 
 	if (action->use_mirroring) {

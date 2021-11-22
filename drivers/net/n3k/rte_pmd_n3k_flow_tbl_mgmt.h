@@ -29,6 +29,7 @@ enum n3k_mgmt_flow_tbl_l3_type {
 struct n3k_mgmt_flow_tbl_l2 {
 	struct rte_ether_addr src_mac;
 	struct rte_ether_addr dst_mac;
+	uint16_t vlan_tci;
 };
 
 struct n3k_mgmt_flow_tbl_l3 {
@@ -154,9 +155,22 @@ struct n3k_flow_tbl_action_nat {
 	uint32_t modified_ip;
 };
 
+enum n3k_mgmt_flow_tbl_vlan_tag_type {
+	N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_NONE,
+	N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT,
+	N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD,
+	N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP,
+};
+
+struct n3k_mgmt_flow_tbl_vlan {
+	enum n3k_mgmt_flow_tbl_vlan_tag_type type;
+	uint16_t tci;
+};
+
 struct n3k_mgmt_flow_tbl_action {
 	enum n3k_mgmt_flow_tbl_action_type type;
 	enum n3k_mgmt_flow_tbl_nat_type nat_type;
+	struct n3k_mgmt_flow_tbl_vlan vlan;
 	struct n3k_flow_tbl_action_nat nat;
 	bool use_mirroring;
 	struct n3k_mgmt_flow_tbl_action_mirror mirror;

@@ -65,6 +65,8 @@ const struct n3k_vdev_dev_id DST_MIRROR_DEVICE_ID = (struct n3k_vdev_dev_id) {
 #define MBUF_CACHE_SIZE 250
 #define BURST_SIZE 32
 
+#define VLAN_TCI(vid, pcp) ((vid) | ((pcp) << 13))
+
 static const struct rte_eth_conf port_conf_default = {
 	.rxmode = {
 		.max_rx_pkt_len = RTE_ETHER_MAX_LEN,
@@ -217,6 +219,145 @@ create_local_flow_entry(uint16_t src_port, uint16_t dst_port, enum key_address_t
 	action->local_action.modify_l2 = true;
 	action->local_action.modified_l2.src_mac = action_smac;
 	action->local_action.modified_l2.dst_mac = action_dmac;
+
+	return flow;
+}
+
+static struct n3k_mgmt_flow_entry
+create_local_insert_vlan_flow_entry(uint16_t src_port, uint16_t dst_port, enum key_address_type kat)
+{
+	struct n3k_mgmt_flow_entry flow;
+	memset(&flow, 0, sizeof(flow));
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+
+	struct rte_ether_addr key_smac = {
+		.addr_bytes = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15}
+	};
+	struct rte_ether_addr key_dmac = {
+		.addr_bytes = {0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b}
+	};
+
+	key->use_tunnel_key = false;
+	key->use_l2_key = true;
+	key->l2.src_mac = key_smac;
+	key->l2.dst_mac = key_dmac;
+	prepare_l3_key(&key->l3, kat, 1);
+	key->l4.src_port = src_port;
+	key->l4.dst_port = dst_port;
+	key->port.port_id = get_port_id_by_name(SRC_PORT_NAME);
+	key->port.device_id = SRC_DEVICE_ID;
+	key->l3.ip_prot = IPPROTO_UDP;
+
+	struct rte_ether_addr action_smac = {
+		.addr_bytes = {0x15, 0x14, 0x13, 0x12, 0x11, 0x10}
+	};
+	struct rte_ether_addr action_dmac = {
+		.addr_bytes = {0x1b, 0x1a, 0x19, 0x18, 0x17, 0x16}
+	};
+
+	action->port.port_id = get_port_id_by_name(DST_PORT_NAME);
+	action->port.device_id = DST_DEVICE_ID;
+	action->type = N3K_MGMT_FLOW_TBL_ACTION_LOCAL;
+	action->local_action.decr_ttl = true;
+	action->local_action.modify_l2 = true;
+	action->local_action.modified_l2.src_mac = action_smac;
+	action->local_action.modified_l2.dst_mac = action_dmac;
+	action->vlan.tci = VLAN_TCI(400, 5);
+	action->vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT;
+
+	return flow;
+}
+
+static struct n3k_mgmt_flow_entry
+create_local_modify_vlan_flow_entry(uint16_t src_port, uint16_t dst_port, enum key_address_type kat)
+{
+	struct n3k_mgmt_flow_entry flow;
+	memset(&flow, 0, sizeof(flow));
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+
+	struct rte_ether_addr key_smac = {
+		.addr_bytes = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15}
+	};
+	struct rte_ether_addr key_dmac = {
+		.addr_bytes = {0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b}
+	};
+
+	key->use_tunnel_key = false;
+	key->use_l2_key = true;
+	key->l2.src_mac = key_smac;
+	key->l2.dst_mac = key_dmac;
+	key->l2.vlan_tci = VLAN_TCI(100, 4);
+	prepare_l3_key(&key->l3, kat, 1);
+	key->l4.src_port = src_port;
+	key->l4.dst_port = dst_port;
+	key->port.port_id = get_port_id_by_name(SRC_PORT_NAME);
+	key->port.device_id = SRC_DEVICE_ID;
+	key->l3.ip_prot = IPPROTO_UDP;
+
+	struct rte_ether_addr action_smac = {
+		.addr_bytes = {0x15, 0x14, 0x13, 0x12, 0x11, 0x10}
+	};
+	struct rte_ether_addr action_dmac = {
+		.addr_bytes = {0x1b, 0x1a, 0x19, 0x18, 0x17, 0x16}
+	};
+
+	action->port.port_id = get_port_id_by_name(DST_PORT_NAME);
+	action->port.device_id = DST_DEVICE_ID;
+	action->type = N3K_MGMT_FLOW_TBL_ACTION_LOCAL;
+	action->local_action.decr_ttl = true;
+	action->local_action.modify_l2 = true;
+	action->local_action.modified_l2.src_mac = action_smac;
+	action->local_action.modified_l2.dst_mac = action_dmac;
+	action->vlan.tci = VLAN_TCI(400, 5);
+	action->vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD;
+
+	return flow;
+}
+
+static struct n3k_mgmt_flow_entry
+create_local_strip_vlan_flow_entry(uint16_t src_port, uint16_t dst_port, enum key_address_type kat)
+{
+	struct n3k_mgmt_flow_entry flow;
+	memset(&flow, 0, sizeof(flow));
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+
+	struct rte_ether_addr key_smac = {
+		.addr_bytes = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15}
+	};
+	struct rte_ether_addr key_dmac = {
+		.addr_bytes = {0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b}
+	};
+
+	key->use_tunnel_key = false;
+	key->use_l2_key = true;
+	key->l2.src_mac = key_smac;
+	key->l2.dst_mac = key_dmac;
+	key->l2.vlan_tci = VLAN_TCI(100, 4);
+	prepare_l3_key(&key->l3, kat, 1);
+	key->l4.src_port = src_port;
+	key->l4.dst_port = dst_port;
+	key->port.port_id = get_port_id_by_name(SRC_PORT_NAME);
+	key->port.device_id = SRC_DEVICE_ID;
+	key->l3.ip_prot = IPPROTO_UDP;
+
+	struct rte_ether_addr action_smac = {
+		.addr_bytes = {0x15, 0x14, 0x13, 0x12, 0x11, 0x10}
+	};
+	struct rte_ether_addr action_dmac = {
+		.addr_bytes = {0x1b, 0x1a, 0x19, 0x18, 0x17, 0x16}
+	};
+
+	action->port.port_id = get_port_id_by_name(DST_PORT_NAME);
+	action->port.device_id = DST_DEVICE_ID;
+	action->type = N3K_MGMT_FLOW_TBL_ACTION_LOCAL;
+	action->local_action.decr_ttl = true;
+	action->local_action.modify_l2 = true;
+	action->local_action.modified_l2.src_mac = action_smac;
+	action->local_action.modified_l2.dst_mac = action_dmac;
+	action->vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP;
 
 	return flow;
 }
@@ -579,6 +720,9 @@ create_decap_l3_flow_entry(uint16_t src_port, uint16_t dst_port, enum key_addres
 
 enum n3k_flow_entry_type {
 	N3K_FLOW_ENTRY_TYPE_LOCAL,
+	N3K_FLOW_ENTRY_TYPE_LOCAL_INSERT_VLAN,
+	N3K_FLOW_ENTRY_TYPE_LOCAL_MODIFY_VLAN,
+	N3K_FLOW_ENTRY_TYPE_LOCAL_STRIP_VLAN,
 	N3K_FLOW_ENTRY_TYPE_LOCAL_MIRROR,
 	N3K_FLOW_ENTRY_TYPE_ENCAP,
 	N3K_FLOW_ENTRY_TYPE_ENCAP_VXLAN,
@@ -609,6 +753,15 @@ schedule_flow_add(struct n3k_mgmt_hw *hw, enum n3k_flow_entry_type flow_type,
 	switch (flow_type) {
 	case N3K_FLOW_ENTRY_TYPE_LOCAL:
 		create_entry = create_local_flow_entry;
+		break;
+	case N3K_FLOW_ENTRY_TYPE_LOCAL_INSERT_VLAN:
+		create_entry = create_local_insert_vlan_flow_entry;
+		break;
+	case N3K_FLOW_ENTRY_TYPE_LOCAL_MODIFY_VLAN:
+		create_entry = create_local_modify_vlan_flow_entry;
+		break;
+	case N3K_FLOW_ENTRY_TYPE_LOCAL_STRIP_VLAN:
+		create_entry = create_local_strip_vlan_flow_entry;
 		break;
 	case N3K_FLOW_ENTRY_TYPE_LOCAL_MIRROR:
 		create_entry = create_local_mirror_flow_entry;
@@ -768,6 +921,12 @@ typedef char input_string_buffer[32];
 static int
 parse_flow_type(const char *flow_type_str, enum n3k_flow_entry_type *flow_type)
 {
+	if (strncmp(flow_type_str, "local_insert_vlan", 17) == 0)
+		return *flow_type = N3K_FLOW_ENTRY_TYPE_LOCAL_INSERT_VLAN, 0;
+	if (strncmp(flow_type_str, "local_modify_vlan", 17) == 0)
+		return *flow_type = N3K_FLOW_ENTRY_TYPE_LOCAL_MODIFY_VLAN, 0;
+	if (strncmp(flow_type_str, "local_strip_vlan", 16) == 0)
+		return *flow_type = N3K_FLOW_ENTRY_TYPE_LOCAL_STRIP_VLAN, 0;
 	if (strncmp(flow_type_str, "local", 5) == 0)
 		return *flow_type = N3K_FLOW_ENTRY_TYPE_LOCAL, 0;
 	if (strncmp(flow_type_str, "drop", 4) == 0)

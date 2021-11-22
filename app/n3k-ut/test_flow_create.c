@@ -42,6 +42,17 @@ static const struct rte_ether_addr DST_MAC = {
 	.addr_bytes = { 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff }
 };
 
+#define MOD_PCP 3
+#define PCP 5
+#define MOD_VID 65
+#define VID 192
+static const rte_le16_t VLAN_PCP = PCP;
+static const rte_le16_t VLAN_VID = VID;
+static const rte_le16_t VLAN_TCI = VID | (PCP << 13);
+static const rte_le16_t MOD_VLAN_PCP = MOD_PCP;
+static const rte_le16_t MOD_VLAN_VID = MOD_VID;
+static const rte_le16_t MOD_VLAN_TCI = MOD_VID | (MOD_PCP << 13);
+
 static const rte_le32_t SRC_IP = RTE_IPV4(1, 2, 3, 4);
 static const rte_le32_t DST_IP = RTE_IPV4(10, 11, 12, 13);
 
@@ -281,6 +292,121 @@ test_local_udp_l2_forward(void **state __rte_unused)
 }
 
 static void
+test_local_udp_l2_insert_vlan_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+static void
+test_local_udp_l2_modify_vlan_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+static void
+test_local_udp_l2_strip_vlan_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_pop_vlan();
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+static void
 test_local_udp_l2_forward_ipv6(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -315,6 +441,43 @@ test_local_udp_l2_forward_ipv6(void **state __rte_unused)
 }
 
 static void
+test_local_udp_vlan_l2_forward_ipv6(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv6(SRC_IP_IPv6, DST_IP_IPv6, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+
+static void
 test_local_snat_l2_forward(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -341,6 +504,132 @@ test_local_snat_l2_forward(void **state __rte_unused)
 
 	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
 	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_SRC_IP);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+static void
+test_local_snat_insert_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+	set_action_ipv4_src(NEW_SRC_IP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_SRC_IP);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+static void
+test_local_snat_modify_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+	set_action_ipv4_src(NEW_SRC_IP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_SRC_IP);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+static void
+test_local_snat_strip_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_pop_vlan();
+	set_action_ipv4_src(NEW_SRC_IP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
 	assert_int_equal(action->port.port_id, DST_PORT_ID);
 	assert_device_id_equal(action->port.device_id, DST_DEVICE);
 
@@ -431,6 +720,153 @@ test_local_udp_l3_forward(void **state __rte_unused)
 }
 
 static void
+test_local_udp_insert_vlan_l3_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_set_mac_src(NEW_SRC_MAC);
+	set_action_set_mac_dst(NEW_DST_MAC);
+	set_action_dec_ttl();
+
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_true(action->local_action.modify_l2);
+	assert_true(action->local_action.decr_ttl);
+
+	struct n3k_mgmt_flow_tbl_l2 *new_l2 = &action->local_action.modified_l2;
+	assert_memory_equal(
+		new_l2->src_mac.addr_bytes, NEW_SRC_MAC.addr_bytes, RTE_ETHER_ADDR_LEN);
+	assert_memory_equal(
+		new_l2->dst_mac.addr_bytes, NEW_DST_MAC.addr_bytes, RTE_ETHER_ADDR_LEN);
+}
+
+static void
+test_local_udp_modify_vlan_l3_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_set_mac_src(NEW_SRC_MAC);
+	set_action_set_mac_dst(NEW_DST_MAC);
+	set_action_dec_ttl();
+
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_true(action->local_action.modify_l2);
+	assert_true(action->local_action.decr_ttl);
+
+	struct n3k_mgmt_flow_tbl_l2 *new_l2 = &action->local_action.modified_l2;
+	assert_memory_equal(
+		new_l2->src_mac.addr_bytes, NEW_SRC_MAC.addr_bytes, RTE_ETHER_ADDR_LEN);
+	assert_memory_equal(
+		new_l2->dst_mac.addr_bytes, NEW_DST_MAC.addr_bytes, RTE_ETHER_ADDR_LEN);
+}
+
+static void
+test_local_udp_strip_vlan_l3_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_set_mac_src(NEW_SRC_MAC);
+	set_action_set_mac_dst(NEW_DST_MAC);
+	set_action_dec_ttl();
+
+	set_action_pop_vlan();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_true(action->local_action.modify_l2);
+	assert_true(action->local_action.decr_ttl);
+
+	struct n3k_mgmt_flow_tbl_l2 *new_l2 = &action->local_action.modified_l2;
+	assert_memory_equal(
+		new_l2->src_mac.addr_bytes, NEW_SRC_MAC.addr_bytes, RTE_ETHER_ADDR_LEN);
+	assert_memory_equal(
+		new_l2->dst_mac.addr_bytes, NEW_DST_MAC.addr_bytes, RTE_ETHER_ADDR_LEN);
+}
+
+static void
 test_local_udp_l3_forward_ipv6(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -486,8 +922,8 @@ test_local_snat_l3_forward(void **state __rte_unused)
 
 	set_action_set_mac_src(NEW_SRC_MAC);
 	set_action_set_mac_dst(NEW_DST_MAC);
-	set_action_ipv4_src(NEW_SRC_IP);
 	set_action_dec_ttl();
+	set_action_ipv4_src(NEW_SRC_IP);
 	set_action_port_id(DST_PORT_ID);
 
 	struct n3k_mgmt_flow_entry flow;
@@ -598,6 +1034,41 @@ test_local_tcp_l2_forward(void **state __rte_unused)
 }
 
 static void
+test_local_tcp_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_TCP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_tcp(SRC_PORT, DST_PORT);
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+static void
 test_local_tcp_l2_forward_ipv6(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_TCP;
@@ -617,6 +1088,41 @@ test_local_tcp_l2_forward_ipv6(void **state __rte_unused)
 
 	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
 	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+static void
+test_local_tcp_vlan_l2_forward_ipv6(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_TCP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv6(SRC_IP_IPv6, DST_IP_IPv6, proto);
+	set_pattern_inner_tcp(SRC_PORT, DST_PORT);
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
 	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
 	assert_false(key->use_tunnel_key);
 	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6);
@@ -743,6 +1249,36 @@ test_local_udp_drop(void **state __rte_unused)
 }
 
 static void
+test_local_udp_vlan_drop(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_drop();
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DROP);
+}
+
+static void
 test_local_udp_drop_ipv6(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -762,6 +1298,36 @@ test_local_udp_drop_ipv6(void **state __rte_unused)
 
 	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
 	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DROP);
+}
+
+static void
+test_local_udp_vlan_drop_ipv6(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv6(SRC_IP_IPv6, DST_IP_IPv6, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_drop();
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
 	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
 	assert_false(key->use_tunnel_key);
 	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6);
@@ -799,6 +1365,36 @@ test_local_tcp_drop(void **state __rte_unused)
 }
 
 static void
+test_local_tcp_vlan_drop(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_TCP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_tcp(SRC_PORT, DST_PORT);
+
+	set_action_drop();
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DROP);
+}
+
+static void
 test_local_tcp_drop_ipv6(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_TCP;
@@ -818,6 +1414,36 @@ test_local_tcp_drop_ipv6(void **state __rte_unused)
 
 	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
 	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DROP);
+}
+
+static void
+test_local_tcp_vlan_drop_ipv6(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_TCP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv6(SRC_IP_IPv6, DST_IP_IPv6, proto);
+	set_pattern_inner_tcp(SRC_PORT, DST_PORT);
+
+	set_action_drop();
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
 	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
 	assert_false(key->use_tunnel_key);
 	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6);
@@ -853,6 +1479,132 @@ test_local_l2_mirror_forward(void **state __rte_unused)
 
 	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
 	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->mirror.mode, 0);
+	assert_int_equal(action->mirror.port.port_id, DST_PORT_ID_MIRROR);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+static void
+test_local_insert_vlan_l2_mirror_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+	set_action_port_id(DST_PORT_ID);
+	set_action_mirror(DST_PORT_ID_MIRROR, 0);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->mirror.mode, 0);
+	assert_int_equal(action->mirror.port.port_id, DST_PORT_ID_MIRROR);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+static void
+test_local_modify_vlan_l2_mirror_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+	set_action_port_id(DST_PORT_ID);
+	set_action_mirror(DST_PORT_ID_MIRROR, 0);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->mirror.mode, 0);
+	assert_int_equal(action->mirror.port.port_id, DST_PORT_ID_MIRROR);
+
+	assert_false(action->local_action.modify_l2);
+	assert_false(action->local_action.decr_ttl);
+}
+
+static void
+test_local_strip_vlan_l2_mirror_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_pop_vlan();
+	set_action_port_id(DST_PORT_ID);
+	set_action_mirror(DST_PORT_ID_MIRROR, 0);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_LOCAL);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
 	assert_int_equal(action->port.port_id, DST_PORT_ID);
 	assert_device_id_equal(action->port.device_id, DST_DEVICE);
 
@@ -1031,6 +1783,135 @@ test_egress_mplsoudp_udp_l2_forward(void **state __rte_unused)
 }
 
 static void
+test_egress_mplsoudp_udp_insert_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+static void
+test_egress_mplsoudp_udp_modify_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+static void
+test_egress_mplsoudp_udp_strip_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_pop_vlan();
+
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+static void
 test_egress_mplsoudp_udp_l2_forward_ipv6(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -1069,6 +1950,46 @@ test_egress_mplsoudp_udp_l2_forward_ipv6(void **state __rte_unused)
 }
 
 static void
+test_egress_mplsoudp_udp_vlan_l2_forward_ipv6(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv6(SRC_IP_IPv6, DST_IP_IPv6, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+
+static void
 test_egress_mplsoudp_snat_l2_forward(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -1102,6 +2023,150 @@ test_egress_mplsoudp_snat_l2_forward(void **state __rte_unused)
 
 	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
 	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_SRC_IP);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+static void
+test_egress_mplsoudp_snat_insert_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+	set_action_ipv4_src(NEW_SRC_IP);
+
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_SRC_IP);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+static void
+test_egress_mplsoudp_snat_modify_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+	set_action_ipv4_src(NEW_SRC_IP);
+
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_SRC_IP);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+static void
+test_egress_mplsoudp_snat_strip_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_pop_vlan();
+	set_action_ipv4_src(NEW_SRC_IP);
+
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
 	assert_int_equal(action->port.port_id, DST_PORT_ID);
 	assert_device_id_equal(action->port.device_id, DST_DEVICE);
 
@@ -1264,6 +2329,138 @@ test_egress_vxlan_udp_l2_forward(void **state __rte_unused)
 }
 
 static void
+test_egress_vxlan_udp_insert_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+
+	set_encap_eth_vxlan(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4_vxlan(OUTER_SRC_IP, OUTER_DST_IP, DEFAULT_TTL, OUTER_TOS);
+	set_encap_udp_vxlan(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_vxlan(VXLAN_VNI);
+	set_action_vxlan_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+}
+
+static void
+test_egress_vxlan_udp_modify_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+
+	set_encap_eth_vxlan(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4_vxlan(OUTER_SRC_IP, OUTER_DST_IP, DEFAULT_TTL, OUTER_TOS);
+	set_encap_udp_vxlan(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_vxlan(VXLAN_VNI);
+	set_action_vxlan_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+}
+
+static void
+test_egress_vxlan_udp_strip_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_pop_vlan();
+
+	set_encap_eth_vxlan(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4_vxlan(OUTER_SRC_IP, OUTER_DST_IP, DEFAULT_TTL, OUTER_TOS);
+	set_encap_udp_vxlan(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_vxlan(VXLAN_VNI);
+	set_action_vxlan_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+}
+
+static void
 test_egress_vxlan_udp_l2_forward_ipv6(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -1334,6 +2531,150 @@ test_egress_vxlan_snat_l2_forward(void **state __rte_unused)
 	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
 
 	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_SRC_IP);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+}
+
+static void
+test_egress_vxlan_snat_insert_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+	set_action_ipv4_src(NEW_SRC_IP);
+
+	set_encap_eth_vxlan(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4_vxlan(OUTER_SRC_IP, OUTER_DST_IP, DEFAULT_TTL, OUTER_TOS);
+	set_encap_udp_vxlan(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_vxlan(VXLAN_VNI);
+	set_action_vxlan_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_SRC_IP);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+}
+
+static void
+test_egress_vxlan_snat_modify_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+	set_action_ipv4_src(NEW_SRC_IP);
+
+	set_encap_eth_vxlan(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4_vxlan(OUTER_SRC_IP, OUTER_DST_IP, DEFAULT_TTL, OUTER_TOS);
+	set_encap_udp_vxlan(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_vxlan(VXLAN_VNI);
+	set_action_vxlan_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_SRC_IP);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+}
+
+static void
+test_egress_vxlan_snat_strip_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_pop_vlan();
+	set_action_ipv4_src(NEW_SRC_IP);
+
+	set_encap_eth_vxlan(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4_vxlan(OUTER_SRC_IP, OUTER_DST_IP, DEFAULT_TTL, OUTER_TOS);
+	set_encap_udp_vxlan(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_vxlan(VXLAN_VNI);
+	set_action_vxlan_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
 	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
 	assert_int_equal(action->port.port_id, DST_PORT_ID);
 	assert_device_id_equal(action->port.device_id, DST_DEVICE);
@@ -1461,6 +2802,141 @@ test_ingress_vxlan_udp_l2_forward(void **state __rte_unused)
 }
 
 static void
+test_ingress_vxlan_udp_insert_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_vxlan(VXLAN_VNI);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_decap_vxlan();
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_decap_vxlan_action_matches(&flow.action);
+}
+
+static void
+test_ingress_vxlan_udp_modify_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_vxlan(VXLAN_VNI);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_decap_vxlan();
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_decap_vxlan_action_matches(&flow.action);
+}
+
+static void
+test_ingress_vxlan_udp_strip_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_vxlan(VXLAN_VNI);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_decap_vxlan();
+	set_action_pop_vlan();
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_decap_vxlan_action_matches(&flow.action);
+}
+
+static void
 test_ingress_vxlan_udp_l2_forward_ipv6(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -1501,6 +2977,50 @@ test_ingress_vxlan_udp_l2_forward_ipv6(void **state __rte_unused)
 }
 
 static void
+test_ingress_vxlan_udp_vlan_l2_forward_ipv6(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_vxlan(VXLAN_VNI);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv6(SRC_IP_IPv6, DST_IP_IPv6, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_decap_vxlan();
+	set_action_pop_vlan();
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_decap_vxlan_action_matches(&flow.action);
+}
+
+
+static void
 test_ingress_vxlan_dnat_l2_forward(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -1535,6 +3055,153 @@ test_ingress_vxlan_dnat_l2_forward(void **state __rte_unused)
 
 	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
 	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_DNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_DST_IP);
+
+	assert_decap_vxlan_action_matches(&flow.action);
+}
+
+static void
+test_ingress_vxlan_dnat_insert_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_vxlan(VXLAN_VNI);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_decap_vxlan();
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+	set_action_ipv4_dst(NEW_DST_IP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_DNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_DST_IP);
+
+	assert_decap_vxlan_action_matches(&flow.action);
+}
+
+static void
+test_ingress_vxlan_dnat_modify_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_vxlan(VXLAN_VNI);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_decap_vxlan();
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+	set_action_ipv4_dst(NEW_DST_IP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_DNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_DST_IP);
+
+	assert_decap_vxlan_action_matches(&flow.action);
+}
+
+static void
+test_ingress_vxlan_dnat_strip_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_vxlan(VXLAN_VNI);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_decap_vxlan();
+	set_action_pop_vlan();
+	set_action_ipv4_dst(NEW_DST_IP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_VXLAN);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
 	assert_int_equal(action->port.port_id, DST_PORT_ID);
 	assert_device_id_equal(action->port.device_id, DST_DEVICE);
 
@@ -1805,6 +3472,139 @@ test_ingress_mplsoudp_udp_l2_forward(void **state __rte_unused)
 }
 
 static void
+test_ingress_mplsoudp_udp_insert_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_decap_action_matches(&flow.action, false);
+}
+
+static void
+test_ingress_mplsoudp_udp_modify_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_decap_action_matches(&flow.action, false);
+}
+
+static void
+test_ingress_mplsoudp_udp_strip_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_action_pop_vlan();
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_decap_action_matches(&flow.action, false);
+}
+
+static void
 test_ingress_mplsoudp_udp_l2_forward_ipv6(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -1830,6 +3630,48 @@ test_ingress_mplsoudp_udp_l2_forward_ipv6(void **state __rte_unused)
 	assert_int_equal(rc, 0);
 
 	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV6);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_decap_action_matches(&flow.action, false);
+}
+
+static void
+test_ingress_mplsoudp_udp_vlan_l2_forward_ipv6(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv6(SRC_IP_IPv6, DST_IP_IPv6, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
 	assert_int_equal(key->port.port_id, SRC_PORT_ID);
 	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
 	assert_true(key->use_tunnel_key);
@@ -1879,6 +3721,153 @@ test_ingress_mplsoudp_dnat_l2_forward(void **state __rte_unused)
 
 	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
 	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_DNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_DST_IP);
+
+	assert_decap_action_matches(&flow.action, false);
+}
+
+static void
+test_ingress_mplsoudp_dnat_insert_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+	set_action_ipv4_dst(NEW_DST_IP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_DNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_DST_IP);
+
+	assert_decap_action_matches(&flow.action, false);
+}
+
+static void
+test_ingress_mplsoudp_dnat_modify_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+	set_action_ipv4_dst(NEW_DST_IP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_DNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_DST_IP);
+
+	assert_decap_action_matches(&flow.action, false);
+}
+
+static void
+test_ingress_mplsoudp_dnat_strip_vlan_l2_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_action_pop_vlan();
+	set_action_ipv4_dst(NEW_DST_IP);
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
 	assert_int_equal(action->port.port_id, DST_PORT_ID);
 	assert_device_id_equal(action->port.device_id, DST_DEVICE);
 
@@ -2147,6 +4136,49 @@ test_egress_mplsoudp_udp_l3_forward(void **state __rte_unused)
 }
 
 static void
+test_egress_mplsoudp_udp_strip_vlan_l3_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_pop_vlan();
+
+	set_action_raw_decap_eth();
+	set_action_dec_ttl();
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+
+	assert_encap_action_matches(&flow.action, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+static void
 test_egress_mplsoudp_udp_l3_forward_ipv6(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -2218,6 +4250,54 @@ test_egress_mplsoudp_snat_l3_forward(void **state __rte_unused)
 	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
 
 	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+
+	assert_int_equal(action->nat_type, N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT);
+	assert_int_equal(action->nat.modified_ip, NEW_SRC_IP);
+
+	assert_encap_action_matches(&flow.action, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+static void
+test_egress_mplsoudp_snat_strip_vlan_l3_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_pop_vlan();
+
+	set_action_ipv4_src(NEW_SRC_IP);
+
+	set_action_raw_decap_eth();
+	set_action_dec_ttl();
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
 	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
 	assert_int_equal(action->port.port_id, DST_PORT_ID);
 
@@ -2340,6 +4420,117 @@ test_ingress_mplsoudp_udp_l3_forward(void **state __rte_unused)
 	assert_int_equal(action->port.port_id, DST_PORT_ID);
 
 	assert_decap_action_matches(&flow.action, true);
+}
+
+static void
+test_ingress_mplsoudp_udp_insert_vlan_l3_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_encap_eth(ROUTER_MAC, DST_MAC);
+	set_action_raw_encap();
+
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, false, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, false, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+
+	assert_decap_action_matches(&flow.action, true);
+}
+
+static void
+test_ingress_mplsoudp_udp_modify_vlan_l3_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_encap_eth(ROUTER_MAC, DST_MAC);
+	set_action_raw_encap();
+
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, -EINVAL);
+}
+
+static void
+test_ingress_mplsoudp_udp_strip_vlan_l3_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_encap_eth(ROUTER_MAC, DST_MAC);
+	set_action_raw_encap();
+
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+
+	set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, -EINVAL);
 }
 
 static void
@@ -2678,6 +4869,150 @@ test_egress_mplsoudp_l2_mirror_forward(void **state __rte_unused)
 }
 
 static void
+test_egress_mplsoudp_insert_vlan_l2_mirror_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+	set_action_mirror(DST_PORT_ID_MIRROR, 0);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->mirror.mode, 0);
+	assert_int_equal(action->mirror.port.port_id, DST_PORT_ID_MIRROR);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+static void
+test_egress_mplsoudp_modify_vlan_l2_mirror_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+	set_action_mirror(DST_PORT_ID_MIRROR, 0);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->mirror.mode, 0);
+	assert_int_equal(action->mirror.port.port_id, DST_PORT_ID_MIRROR);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+static void
+test_egress_mplsoudp_strip_vlan_l2_mirror_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_pop_vlan();
+
+	set_encap_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_encap_ipv4(OUTER_SRC_IP, OUTER_DST_IP, OUTER_TTL, OUTER_TOS);
+	set_encap_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_encap_mpls(MPLS_LABEL, MPLS_TC);
+	set_action_raw_encap();
+
+	set_action_port_id(DST_PORT_ID);
+	set_action_mirror(DST_PORT_ID_MIRROR, 0);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_false(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_ENCAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->mirror.mode, 0);
+	assert_int_equal(action->mirror.port.port_id, DST_PORT_ID_MIRROR);
+
+	assert_encap_action_matches(&flow.action, false, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+}
+
+static void
 test_egress_mplsoudp_l2_mirror_forward_ipv6(void **state __rte_unused)
 {
 	const uint8_t proto = IPPROTO_UDP;
@@ -2754,6 +5089,153 @@ test_ingress_mplsoudp_l2_mirror_forward(void **state __rte_unused)
 
 	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
 	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->mirror.mode, 1);
+	assert_int_equal(action->mirror.port.port_id, DST_PORT_ID_MIRROR);
+
+	assert_decap_action_matches(&flow.action, false);
+}
+
+static void
+test_ingress_mplsoudp_insert_vlan_l2_mirror_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_action_push_vlan();
+	set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+	set_action_port_id(DST_PORT_ID);
+	set_action_mirror(DST_PORT_ID_MIRROR, 1);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT);
+	assert_int_equal(action->vlan.tci, VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->mirror.mode, 1);
+	assert_int_equal(action->mirror.port.port_id, DST_PORT_ID_MIRROR);
+
+	assert_decap_action_matches(&flow.action, false);
+}
+
+static void
+test_ingress_mplsoudp_modify_vlan_l2_mirror_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_action_set_vlan_vid(MOD_VLAN_VID);
+	set_action_set_vlan_pcp(MOD_VLAN_PCP);
+	set_action_port_id(DST_PORT_ID);
+	set_action_mirror(DST_PORT_ID_MIRROR, 1);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD);
+	assert_int_equal(action->vlan.tci, MOD_VLAN_TCI);
+	assert_int_equal(action->port.port_id, DST_PORT_ID);
+	assert_device_id_equal(action->port.device_id, DST_DEVICE);
+
+	assert_int_equal(action->mirror.mode, 1);
+	assert_int_equal(action->mirror.port.port_id, DST_PORT_ID_MIRROR);
+
+	assert_decap_action_matches(&flow.action, false);
+}
+
+static void
+test_ingress_mplsoudp_strip_vlan_l2_mirror_forward(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+
+	set_pattern_outer_eth(OUTER_SRC_MAC, OUTER_DST_MAC);
+	set_pattern_outer_ipv4(OUTER_SRC_IP, OUTER_DST_IP);
+	set_pattern_outer_udp(OUTER_SRC_PORT, OUTER_DST_PORT);
+	set_pattern_mpls(MPLS_LABEL, MPLS_TC);
+
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_vlan(VLAN_TCI);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_raw_decap_mpls();
+	set_action_pop_vlan();
+	set_action_port_id(DST_PORT_ID);
+	set_action_mirror(DST_PORT_ID_MIRROR, 1);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, 0);
+
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	assert_int_equal(key->l2.vlan_tci, VLAN_TCI);
+	assert_int_equal(key->port.port_id, SRC_PORT_ID);
+	assert_device_id_equal(key->port.device_id, SRC_DEVICE);
+	assert_true(key->use_tunnel_key);
+	assert_inner_key_matches(key, proto, true, N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4);
+	assert_outer_key_matches(&flow.key, true, N3K_MGMT_TUNNEL_TYPE_MPLSOUDP);
+
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+	assert_int_equal(action->type, N3K_MGMT_FLOW_TBL_ACTION_DECAP);
+	assert_int_equal(action->vlan.type, N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP);
 	assert_int_equal(action->port.port_id, DST_PORT_ID);
 	assert_device_id_equal(action->port.device_id, DST_DEVICE);
 
@@ -2991,6 +5473,28 @@ test_missing_action(void **state __rte_unused)
 	set_pattern_inner_udp(SRC_PORT, DST_PORT);
 
 	//set_action_port_id(DST_PORT_ID);
+
+	struct n3k_mgmt_flow_entry flow;
+	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
+	assert_int_equal(rc, -EINVAL);
+}
+
+static void
+test_missing_action_insert_vlan(void **state __rte_unused)
+{
+	const uint8_t proto = IPPROTO_UDP;
+
+	reset_patterns_and_actions();
+
+	set_pattern_port_id(SRC_PORT_ID);
+	set_pattern_inner_eth(SRC_MAC, DST_MAC);
+	set_pattern_inner_ipv4(SRC_IP, DST_IP, proto);
+	set_pattern_inner_udp(SRC_PORT, DST_PORT);
+
+	set_action_push_vlan();
+	// set_action_set_vlan_vid(VLAN_VID);
+	set_action_set_vlan_pcp(VLAN_PCP);
+	set_action_port_id(DST_PORT_ID);
 
 	struct n3k_mgmt_flow_entry flow;
 	int rc = n3k_mgmt_rte_flow_to_tables(pattern, actions, &flow);
@@ -3419,30 +5923,54 @@ test_mixed_l3_l2_ingress_ipv6(void **state __rte_unused)
 
 const struct CMUnitTest flow_create_tests[] = {
 	cmocka_unit_test(test_local_udp_l2_forward),
+	cmocka_unit_test(test_local_udp_l2_insert_vlan_forward),
+	cmocka_unit_test(test_local_udp_l2_modify_vlan_forward),
+	cmocka_unit_test(test_local_udp_l2_strip_vlan_forward),
 	cmocka_unit_test(test_local_udp_l2_forward_ipv6),
+	cmocka_unit_test(test_local_udp_vlan_l2_forward_ipv6),
 	cmocka_unit_test(test_local_udp_l3_forward),
+	cmocka_unit_test(test_local_udp_insert_vlan_l3_forward),
+	cmocka_unit_test(test_local_udp_modify_vlan_l3_forward),
+	cmocka_unit_test(test_local_udp_strip_vlan_l3_forward),
 	cmocka_unit_test(test_local_udp_l3_forward_ipv6),
 	cmocka_unit_test(test_local_tcp_l2_forward),
+	cmocka_unit_test(test_local_tcp_vlan_l2_forward),
 	cmocka_unit_test(test_local_tcp_l2_forward_ipv6),
+	cmocka_unit_test(test_local_tcp_vlan_l2_forward_ipv6),
 	cmocka_unit_test(test_local_tcp_l3_forward),
 	cmocka_unit_test(test_local_tcp_l3_forward_ipv6),
 	cmocka_unit_test(test_local_udp_drop),
+	cmocka_unit_test(test_local_udp_vlan_drop),
 	cmocka_unit_test(test_local_udp_drop_ipv6),
+	cmocka_unit_test(test_local_udp_vlan_drop_ipv6),
 	cmocka_unit_test(test_local_tcp_drop),
+	cmocka_unit_test(test_local_tcp_vlan_drop),
 	cmocka_unit_test(test_local_tcp_drop_ipv6),
+	cmocka_unit_test(test_local_tcp_vlan_drop_ipv6),
 
 	cmocka_unit_test(test_local_l2_mirror_forward),
+	cmocka_unit_test(test_local_insert_vlan_l2_mirror_forward),
+	cmocka_unit_test(test_local_modify_vlan_l2_mirror_forward),
+	cmocka_unit_test(test_local_strip_vlan_l2_mirror_forward),
 	cmocka_unit_test(test_local_l2_mirror_forward_ipv6),
 	cmocka_unit_test(test_local_l3_mirror_forward),
 	cmocka_unit_test(test_local_l3_mirror_forward_ipv6),
 
 	cmocka_unit_test(test_egress_mplsoudp_udp_l2_forward),
+	cmocka_unit_test(test_egress_mplsoudp_udp_insert_vlan_l2_forward),
+	cmocka_unit_test(test_egress_mplsoudp_udp_modify_vlan_l2_forward),
+	cmocka_unit_test(test_egress_mplsoudp_udp_strip_vlan_l2_forward),
 	cmocka_unit_test(test_egress_mplsoudp_udp_l2_forward_ipv6),
+	cmocka_unit_test(test_egress_mplsoudp_udp_vlan_l2_forward_ipv6),
 	cmocka_unit_test(test_egress_mplsoudp_tcp_l2_forward),
 	cmocka_unit_test(test_egress_mplsoudp_tcp_l2_forward_ipv6),
 
 	cmocka_unit_test(test_ingress_mplsoudp_udp_l2_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_udp_insert_vlan_l2_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_udp_modify_vlan_l2_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_udp_strip_vlan_l2_forward),
 	cmocka_unit_test(test_ingress_mplsoudp_udp_l2_forward_ipv6),
+	cmocka_unit_test(test_ingress_mplsoudp_udp_vlan_l2_forward_ipv6),
 	cmocka_unit_test(test_ingress_mplsoudp_tcp_l2_forward),
 	cmocka_unit_test(test_ingress_mplsoudp_tcp_l2_forward_ipv6),
 	cmocka_unit_test(test_ingress_mplsoudp_udp_l2_drop),
@@ -3451,11 +5979,15 @@ const struct CMUnitTest flow_create_tests[] = {
 	cmocka_unit_test(test_ingress_mplsoudp_tcp_l2_drop_ipv6),
 
 	cmocka_unit_test(test_egress_mplsoudp_udp_l3_forward),
+	cmocka_unit_test(test_egress_mplsoudp_udp_strip_vlan_l3_forward),
 	cmocka_unit_test(test_egress_mplsoudp_udp_l3_forward_ipv6),
 	cmocka_unit_test(test_egress_mplsoudp_tcp_l3_forward),
 	cmocka_unit_test(test_egress_mplsoudp_tcp_l3_forward_ipv6),
 
 	cmocka_unit_test(test_ingress_mplsoudp_udp_l3_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_udp_insert_vlan_l3_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_udp_modify_vlan_l3_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_udp_strip_vlan_l3_forward),
 	cmocka_unit_test(test_ingress_mplsoudp_udp_l3_forward_ipv6),
 	cmocka_unit_test(test_ingress_mplsoudp_tcp_l3_forward),
 	cmocka_unit_test(test_ingress_mplsoudp_tcp_l3_forward_ipv6),
@@ -3465,26 +5997,43 @@ const struct CMUnitTest flow_create_tests[] = {
 	cmocka_unit_test(test_ingress_mplsoudp_tcp_l3_drop_ipv6),
 
 	cmocka_unit_test(test_egress_mplsoudp_l2_mirror_forward),
+	cmocka_unit_test(test_egress_mplsoudp_insert_vlan_l2_mirror_forward),
+	cmocka_unit_test(test_egress_mplsoudp_modify_vlan_l2_mirror_forward),
+	cmocka_unit_test(test_egress_mplsoudp_strip_vlan_l2_mirror_forward),
 	cmocka_unit_test(test_egress_mplsoudp_l2_mirror_forward_ipv6),
 	cmocka_unit_test(test_ingress_mplsoudp_l2_mirror_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_insert_vlan_l2_mirror_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_modify_vlan_l2_mirror_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_strip_vlan_l2_mirror_forward),
 	cmocka_unit_test(test_ingress_mplsoudp_l2_mirror_forward_ipv6),
 	cmocka_unit_test(test_egress_mplsoudp_l3_mirror_forward),
 	cmocka_unit_test(test_egress_mplsoudp_l3_mirror_forward_ipv6),
 	cmocka_unit_test(test_ingress_mplsoudp_l3_mirror_forward),
 	cmocka_unit_test(test_ingress_mplsoudp_l3_mirror_forward_ipv6),
 	cmocka_unit_test(test_local_snat_l2_forward),
+	cmocka_unit_test(test_local_snat_insert_vlan_l2_forward),
+	cmocka_unit_test(test_local_snat_modify_vlan_l2_forward),
+	cmocka_unit_test(test_local_snat_strip_vlan_l2_forward),
 	cmocka_unit_test(test_local_dnat_l2_forward),
 	cmocka_unit_test(test_local_snat_l3_forward),
 	cmocka_unit_test(test_local_dnat_l3_forward),
 	cmocka_unit_test(test_egress_mplsoudp_snat_l2_forward),
+	cmocka_unit_test(test_egress_mplsoudp_snat_insert_vlan_l2_forward),
+	cmocka_unit_test(test_egress_mplsoudp_snat_modify_vlan_l2_forward),
+	cmocka_unit_test(test_egress_mplsoudp_snat_strip_vlan_l2_forward),
 	cmocka_unit_test(test_ingress_mplsoudp_dnat_l2_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_dnat_insert_vlan_l2_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_dnat_modify_vlan_l2_forward),
+	cmocka_unit_test(test_ingress_mplsoudp_dnat_strip_vlan_l2_forward),
 	cmocka_unit_test(test_egress_mplsoudp_snat_l3_forward),
+	cmocka_unit_test(test_egress_mplsoudp_snat_strip_vlan_l3_forward),
 	cmocka_unit_test(test_ingress_mplsoudp_dnat_l3_forward),
 
 	cmocka_unit_test(test_missing_pattern),
 	cmocka_unit_test(test_missing_pattern_ipv6),
 	cmocka_unit_test(test_missing_action),
 	cmocka_unit_test(test_missing_action_ipv6),
+	cmocka_unit_test(test_missing_action_insert_vlan),
 	cmocka_unit_test(test_nat_not_supported),
 	cmocka_unit_test(test_mixed_tcp_udp),
 	cmocka_unit_test(test_mixed_tcp_udp_ipv6),
@@ -3502,14 +6051,27 @@ const struct CMUnitTest flow_create_tests[] = {
 	cmocka_unit_test(test_mixed_l3_l2_ingress_ipv6),
 
 	cmocka_unit_test(test_egress_vxlan_udp_l2_forward),
+	cmocka_unit_test(test_egress_vxlan_udp_insert_vlan_l2_forward),
+	cmocka_unit_test(test_egress_vxlan_udp_modify_vlan_l2_forward),
+	cmocka_unit_test(test_egress_vxlan_udp_strip_vlan_l2_forward),
 	cmocka_unit_test(test_egress_vxlan_udp_l2_forward_ipv6),
 	cmocka_unit_test(test_egress_vxlan_snat_l2_forward),
+	cmocka_unit_test(test_egress_vxlan_snat_insert_vlan_l2_forward),
+	cmocka_unit_test(test_egress_vxlan_snat_modify_vlan_l2_forward),
+	cmocka_unit_test(test_egress_vxlan_snat_strip_vlan_l2_forward),
 	cmocka_unit_test(test_egress_vxlan_tcp_l2_forward),
 	cmocka_unit_test(test_egress_vxlan_tcp_l2_forward_ipv6),
 
 	cmocka_unit_test(test_ingress_vxlan_udp_l2_forward),
+	cmocka_unit_test(test_ingress_vxlan_udp_insert_vlan_l2_forward),
+	cmocka_unit_test(test_ingress_vxlan_udp_modify_vlan_l2_forward),
+	cmocka_unit_test(test_ingress_vxlan_udp_strip_vlan_l2_forward),
 	cmocka_unit_test(test_ingress_vxlan_udp_l2_forward_ipv6),
+	cmocka_unit_test(test_ingress_vxlan_udp_vlan_l2_forward_ipv6),
 	cmocka_unit_test(test_ingress_vxlan_dnat_l2_forward),
+	cmocka_unit_test(test_ingress_vxlan_dnat_insert_vlan_l2_forward),
+	cmocka_unit_test(test_ingress_vxlan_dnat_modify_vlan_l2_forward),
+	cmocka_unit_test(test_ingress_vxlan_dnat_strip_vlan_l2_forward),
 	cmocka_unit_test(test_ingress_vxlan_tcp_l2_forward),
 	cmocka_unit_test(test_ingress_vxlan_tcp_l2_forward_ipv6),
 

@@ -75,10 +75,10 @@ n3k_vdev_copy_inbound_mbuf(
 }
 
 static void
-dump_packet(const char *title, struct rte_mbuf *pkt)
+dump_packet(const char *title, const struct rte_mbuf *pkt)
 {
 	rte_hexdump(rte_log_get_stream(), title,
-		(uint8_t*)pkt->buf_addr + pkt->data_off,
+		(const uint8_t*)pkt->buf_addr + pkt->data_off,
 		pkt->data_len);
 }
 
@@ -142,6 +142,20 @@ n3k_vdev_map_port_id_to_vdev(
 }
 
 static inline void
+n3k_vdev_log_pkt(
+	const char *name, uint16_t queue_id, const struct rte_mbuf *pkt,
+	const char *direction)
+{
+	char buff[128];
+	if (N3K_VDEV_SHOULD_LOG(DISPATCHER, DEBUG)) {
+		snprintf(buff, sizeof(buff),
+			"[%s]: Packet on VF0 from port: %s, queue: %" PRIu16,
+			direction, name, queue_id);
+		dump_packet(buff, pkt);
+	}
+}
+
+static inline void
 n3k_vdev_dispatcher_rx_pkt(
 	struct n3k_vdev_dispatcher_context *ctx,
 	uint16_t queue_id, struct rte_mbuf *src_pkt)
@@ -193,13 +207,7 @@ n3k_vdev_dispatcher_rx_pkt(
 		goto free_src_pkt;
 	}
 
-	if (N3K_VDEV_SHOULD_LOG(DISPATCHER, DEBUG)) {
-		char buff[128];
-		snprintf(buff, sizeof(buff),
-			"Received packet on VF0 from port: %s, queue: %" PRIu16,
-			vdev->data->name, queue_id);
-		dump_packet(buff, src_pkt);
-	}
+	n3k_vdev_log_pkt(vdev->data->name, queue_id, src_pkt, "RX");
 
 	n3k_vdev_dispatcher_rx_parsed_pkt(vdev, queue_id, src_pkt);
 
@@ -317,9 +325,12 @@ n3k_vdev_dispatcher_tx_pkts(
 		return 0;
 	}
 
-	for (pkt_idx = 0; pkt_idx < count; ++pkt_idx)
+	for (pkt_idx = 0; pkt_idx < count; ++pkt_idx) {
 		n3k_vdev_copy_outbound_mbuf(
 			dst_pkts[pkt_idx], src_pkts[pkt_idx], vf_dev);
+
+		n3k_vdev_log_pkt(vf_dev->data->name, vf_queue->queue_id, dst_pkts[pkt_idx], "TX");
+	}
 
 	nb_sent = rte_eth_tx_burst(
 		pf_dev->data->port_id, pf_queue_id, dst_pkts, count);

@@ -76,7 +76,8 @@ n3k_vdev_dpdk_port_to_vdev_id(uint16_t dpdk_port,
 }
 
 int rte_log(uint32_t level __attribute__((unused)),
-        uint32_t logtype __attribute__((unused)), const char *format __attribute__((unused)), ...)
+	uint32_t logtype __attribute__((unused)),
+	const char *format __attribute__((unused)), ...)
 {
-    return 0;
+	return 0;
 }

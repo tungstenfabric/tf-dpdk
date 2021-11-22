@@ -31,6 +31,7 @@ static struct rte_flow_item_udp outer_udp_spec;
 static struct rte_flow_item_vxlan vxlan_spec;
 static struct rte_flow_item_mpls mpls_spec;
 static struct rte_flow_item_eth inner_eth_spec;
+static struct rte_flow_item_vlan inner_vlan_spec;
 static struct rte_flow_item_ipv4 inner_ipv4_spec;
 static struct rte_flow_item_ipv6 inner_ipv6_spec;
 static struct rte_flow_item_udp inner_udp_spec;
@@ -79,6 +80,9 @@ struct rte_flow_item pattern[MAX_ITEMS_COUNT + 1] = {
 
 static uint8_t raw_decap_data[2048];
 
+static struct rte_flow_action_of_push_vlan push_vlan_action_conf;
+static struct rte_flow_action_of_set_vlan_vid set_vlan_vid_action_conf;
+static struct rte_flow_action_of_set_vlan_pcp set_vlan_pcp_action_conf;
 static struct rte_flow_action_port_id port_id_action_conf;
 static struct rte_flow_action_set_ipv4 set_ipv4_src_action_conf;
 static struct rte_flow_action_set_ipv4 set_ipv4_dst_action_conf;
@@ -271,6 +275,16 @@ set_pattern_inner_eth(
 }
 
 void
+set_pattern_inner_vlan(rte_le16_t tci)
+{
+	inner_vlan_spec = (struct rte_flow_item_vlan) {
+		.tci = RTE_BE16(tci)
+	};
+
+	set_next_pattern(RTE_FLOW_ITEM_TYPE_VLAN, &inner_vlan_spec);
+}
+
+void
 set_pattern_inner_ipv4(rte_le32_t src_ip, rte_le32_t dst_ip, uint8_t ip_proto)
 {
 	inner_ipv4_spec = (struct rte_flow_item_ipv4) {
@@ -419,6 +433,36 @@ set_action_ipv4_dst(uint32_t ip)
 		.ipv4_addr = RTE_BE32(ip),
 	};
 	set_next_action(RTE_FLOW_ACTION_TYPE_SET_IPV4_DST, &set_ipv4_dst_action_conf);
+}
+
+void
+set_action_push_vlan(void)
+{
+	set_next_action(RTE_FLOW_ACTION_TYPE_OF_PUSH_VLAN, &push_vlan_action_conf);
+}
+
+void
+set_action_set_vlan_vid(rte_le16_t vid)
+{
+	set_vlan_vid_action_conf = (struct rte_flow_action_of_set_vlan_vid) {
+		.vlan_vid = RTE_BE16(vid),
+	};
+	set_next_action(RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_VID, &set_vlan_vid_action_conf);
+}
+
+void
+set_action_set_vlan_pcp(rte_le16_t pcp)
+{
+	set_vlan_pcp_action_conf = (struct rte_flow_action_of_set_vlan_pcp) {
+		.vlan_pcp = pcp,
+	};
+	set_next_action(RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_PCP, &set_vlan_pcp_action_conf);
+}
+
+void
+set_action_pop_vlan(void)
+{
+	set_next_action(RTE_FLOW_ACTION_TYPE_OF_POP_VLAN, NULL);
 }
 
 void
