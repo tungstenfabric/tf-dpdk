@@ -23,7 +23,12 @@
 #define N3K_MGMT_SUBSYS_DEVICE_ID 0x15FE
 
 #define N3K_MGMT_MAX_QUEUES     1
+
+// in ubi8 it is defined /usr/include/linux/virtio_config.h:78
+//  #define VIRTIO_F_IOMMU_PLATFORM  VIRTIO_F_ACCESS_PLATFORM
+#ifndef VIRTIO_F_IOMMU_PLATFORM
 #define VIRTIO_F_IOMMU_PLATFORM 33
+#endif
 
 /* Common configuration */
 #define N3K_MGMT_PCI_CAP_COMMON_CFG 1
