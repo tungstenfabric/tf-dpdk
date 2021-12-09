@@ -8,6 +8,7 @@ endif
 apps = [
 	'n3kflow-dump',
 	'n3k-flr-test-app',
+	'n3k-info',
 	'pdump',
 	'proc-info',
 	'test-acl',

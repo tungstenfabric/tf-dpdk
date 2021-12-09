@@ -98,6 +98,7 @@ SRCS-$(CONFIG_RTE_LIBRTE_N3K_PMD) += mgmt/n3k_mgmt_tunnel_tbl_cache.c
 SRCS-$(CONFIG_RTE_LIBRTE_N3K_PMD) += mgmt/n3k_mgmt_tunnel_tbl.c
 SRCS-$(CONFIG_RTE_LIBRTE_N3K_PMD) += mgmt/n3k_mgmt_vplkp_tbl_cache.c
 SRCS-$(CONFIG_RTE_LIBRTE_N3K_PMD) += mgmt/n3k_mgmt_vplkp_tbl.c
+SRCS-$(CONFIG_RTE_LIBRTE_N3K_PMD) += mgmt/n3k_mgmt_info.c
 
 SRCS-$(CONFIG_RTE_LIBRTE_N3K_PMD) += rte_pmd_n3k_flow_tbl_mgmt.c
 SRCS-$(CONFIG_RTE_LIBRTE_N3K_PMD) += rte_pmd_n3k_malloc.c

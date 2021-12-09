@@ -9,6 +9,7 @@
 #include "rte_pmd_n3k.h"
 #include "vdev/n3k_vdev_device.h"
 #include "vdev/n3k_vdev_log.h"
+#include "mgmt/n3k_mgmt_info.h"
 
 #include <string.h>
 #include <rte_pci.h>
