@@ -50,7 +50,7 @@ static struct rte_ring *n3k_dump_entries_ring = NULL;
 /* Function used only with JSON output, if there's no json library
  * it will be unused, that's why declaration and attribute is used */
 static const char*
-n3k_dump_table_type_to_str(enum n3k_mgmt_mp_request_table table) 
+n3k_dump_table_type_to_str(enum n3k_mgmt_mp_request_table table)
 	__attribute__((unused));
 
 static void
@@ -151,8 +151,8 @@ n3k_default_request_sync(struct rte_mp_msg *req, struct rte_mp_msg *resp)
 static void
 init_n3k_mp_request(struct n3k_mgmt_mp_request *n3k_req)
 {
-    snprintf(n3k_req->device_name, RTE_ETH_NAME_MAX_LEN, "%s",
-            n3k_dump_options.mgmt_device_name);
+	snprintf(n3k_req->device_name, RTE_ETH_NAME_MAX_LEN, "%s",
+		n3k_dump_options.mgmt_device_name);
 }
 
 static void
@@ -160,7 +160,7 @@ init_mp_msg(struct rte_mp_msg *msg, const char *req_name,
 	const struct n3k_mgmt_mp_request *n3k_req)
 {
 	memset(msg, 0, sizeof(*msg));
-    strncpy(msg->name, req_name, RTE_MP_MAX_NAME_LEN - 1);
+	strncpy(msg->name, req_name, RTE_MP_MAX_NAME_LEN - 1);
 	msg->len_param = sizeof(*n3k_req);
 	memcpy(msg->param, n3k_req, msg->len_param);
 }
@@ -349,7 +349,7 @@ n3k_dump_get_response_from_ring(struct n3k_mgmt_mp_entries_response *response)
 }
 
 static const char*
-n3k_dump_table_type_to_str(enum n3k_mgmt_mp_request_table table) 
+n3k_dump_table_type_to_str(enum n3k_mgmt_mp_request_table table)
 {
 	switch (table) {
 	case N3K_MGMT_MP_REQUEST_TABLE_FLOW:

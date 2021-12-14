@@ -126,6 +126,12 @@ n3k_mgmt_flow_key_dump_data(
 			",dst=" N3K_MGMT_CONVERT_MAC_FORMAT ")",
 			N3K_MGMT_CONVERT_MAC_VALUE(key->l2.src_mac),
 			N3K_MGMT_CONVERT_MAC_VALUE(key->l2.dst_mac));
+
+		if (key->l2.vlan_tci != 0) {
+			printf(",vlan(vid=%u, pcp=%u)",
+				   key->l2.vlan_tci & 0xFFF,
+				   key->l2.vlan_tci >> 13);
+		}
 	}
 
 	switch (key->l3.type) {
@@ -170,6 +176,28 @@ n3k_mgmt_flow_action_nat_dump_data(
 }
 
 static void
+n3k_mgmt_flow_action_vlan_dump_data(
+	const struct n3k_mgmt_flow_tbl_action *action
+)
+{
+	switch (action->vlan.type) {
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT:
+		printf(",insert_vlan(vid=%u, pcp=%u)", action->vlan.tci & 0xFFF,
+			   action->vlan.tci >> 13);
+		break;
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD:
+		printf(",modify_vlan(vid=%u, pcp=%u)", action->vlan.tci & 0xFFF,
+			   action->vlan.tci >> 13);
+		break;
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP:
+		printf(",strip_vlan()");
+		break;
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_NONE:
+		break;
+	}
+}
+
+static void
 n3k_mgmt_flow_action_dump_data(
 	const struct n3k_mgmt_flow_tbl_action *action,
 	const struct n3k_mgmt_tunnel_tbl_entry *tunnel,
@@ -194,6 +222,9 @@ n3k_mgmt_flow_action_dump_data(
 					action->local_action.modified_l2.dst_mac));
 		}
 
+		if (action->vlan.type != N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_NONE)
+			n3k_mgmt_flow_action_vlan_dump_data(action);
+
 		printf(",out_port(%" PRIu16 ",%s)", action->port.port_id,
 			rte_pmd_n3k_vdev_id_to_str(str_buff, action->port.device_id));
 
@@ -211,6 +242,9 @@ n3k_mgmt_flow_action_dump_data(
 
 		if (action->encap_action.decr_ttl)
 			printf(",decr_ttl()");
+
+		if (action->vlan.type != N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_NONE)
+			n3k_mgmt_flow_action_vlan_dump_data(action);
 
 		if (!print_tunnel) {
 			printf(",tunnel(id=%" PRIu16 ",%s",
@@ -267,6 +301,9 @@ n3k_mgmt_flow_action_dump_data(
 
 		if (action->nat_type != N3K_MGMT_FLOW_TBL_NAT_TYPE_NONE)
 			n3k_mgmt_flow_action_nat_dump_data(action);
+
+		if (action->vlan.type != N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_NONE)
+			n3k_mgmt_flow_action_vlan_dump_data(action);
 
 		printf(",out_port(%" PRIu16 ",%s)", action->port.port_id,
 			rte_pmd_n3k_vdev_id_to_str(str_buff, action->port.device_id));

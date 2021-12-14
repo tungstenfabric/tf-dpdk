@@ -35,9 +35,9 @@
 #define LACP_REFRESH 50000
 
 enum lag_lacp_ports_state {
-    LAG_LACP_DISABLED = 0,
-    LAG_LACP_PHY0_ENABLED = 1 << 0,
-    LAG_LACP_PHY1_ENABLED = 1 << 1,
+	LAG_LACP_DISABLED = 0,
+	LAG_LACP_PHY0_ENABLED = 1 << 0,
+	LAG_LACP_PHY1_ENABLED = 1 << 1,
 };
 
 struct n3k_mgmt_lag_internal {

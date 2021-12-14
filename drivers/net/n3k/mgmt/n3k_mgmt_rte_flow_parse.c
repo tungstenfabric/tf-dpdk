@@ -84,6 +84,17 @@ handle_pattern_inner_eth_ingress(
 }
 
 static int
+handle_pattern_inner_vlan(
+	const struct rte_flow_item *pattern, struct n3k_mgmt_flow_entry *flow)
+{
+	const struct rte_flow_item_vlan *vlan_spec =
+		(const struct rte_flow_item_vlan *)pattern->spec;
+
+	flow->key.key_raw.l2.vlan_tci = rte_bswap16(vlan_spec->tci);
+	return 0;
+}
+
+static int
 handle_pattern_ipv4(
 	const struct rte_flow_item *pattern, struct n3k_mgmt_flow_tbl_l3 *l3_key)
 {
@@ -631,6 +642,47 @@ handle_action_port_id_local(
 }
 
 static int
+handle_action_push_inner_vlan(
+	__rte_unused const struct rte_flow_action *action, struct n3k_mgmt_flow_entry *flow)
+{
+	flow->action.action_raw.vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT;
+	return 0;
+}
+
+static int
+handle_action_set_inner_vlan_vid(
+	const struct rte_flow_action *action, struct n3k_mgmt_flow_entry *flow)
+{
+	const struct rte_flow_action_of_set_vlan_vid *action_set_vlan_vid =
+		(const struct rte_flow_action_of_set_vlan_vid *)action->conf;
+
+	if (flow->action.action_raw.vlan.type != N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT)
+		flow->action.action_raw.vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD;
+
+	flow->action.action_raw.vlan.tci = rte_bswap16(action_set_vlan_vid->vlan_vid);
+	return 0;
+}
+
+static int
+handle_action_set_inner_vlan_pcp(
+	const struct rte_flow_action *action, struct n3k_mgmt_flow_entry *flow)
+{
+	const struct rte_flow_action_of_set_vlan_pcp *action_set_vlan_pcp =
+		(const struct rte_flow_action_of_set_vlan_pcp *)action->conf;
+
+	flow->action.action_raw.vlan.tci |= (action_set_vlan_pcp->vlan_pcp << 13);
+	return 0;
+}
+
+static int
+handle_action_pop_inner_vlan(
+	__rte_unused const struct rte_flow_action *action, struct n3k_mgmt_flow_entry *flow)
+{
+	flow->action.action_raw.vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP;
+	return 0;
+}
+
+static int
 handle_action_port_id_ingress_l2_check(
 	const struct rte_flow_action *action, struct n3k_mgmt_flow_entry *flow)
 {
@@ -710,6 +762,15 @@ static const pattern_transitions_t pattern_transitions_from_local_vm = {
 	[PATTERN_STATE_PORT_ID][RTE_FLOW_ITEM_TYPE_ETH] = {
 		PATTERN_STATE_INNER_ETH, &handle_pattern_inner_eth
 	},
+	[PATTERN_STATE_INNER_ETH][RTE_FLOW_ITEM_TYPE_VLAN] = {
+		PATTERN_STATE_INNER_VLAN, &handle_pattern_inner_vlan,
+	},
+	[PATTERN_STATE_INNER_VLAN][RTE_FLOW_ITEM_TYPE_IPV4] = {
+		PATTERN_STATE_INNER_IPV4, &handle_pattern_inner_ipv4,
+	},
+	[PATTERN_STATE_INNER_VLAN][RTE_FLOW_ITEM_TYPE_IPV6] = {
+		PATTERN_STATE_INNER_IPV6, &handle_pattern_inner_ipv6,
+	},
 	[PATTERN_STATE_INNER_ETH][RTE_FLOW_ITEM_TYPE_IPV4] = {
 		PATTERN_STATE_INNER_IPV4, &handle_pattern_inner_ipv4,
 	},
@@ -768,6 +829,15 @@ static const pattern_transitions_t pattern_transitions_from_remote_vm = {
 	[PATTERN_STATE_MPLS][RTE_FLOW_ITEM_TYPE_IPV6] = {
 		PATTERN_STATE_INNER_IPV6, &handle_pattern_inner_ipv6
 	},
+	[PATTERN_STATE_INNER_ETH][RTE_FLOW_ITEM_TYPE_VLAN] = {
+		PATTERN_STATE_INNER_VLAN, &handle_pattern_inner_vlan,
+	},
+	[PATTERN_STATE_INNER_VLAN][RTE_FLOW_ITEM_TYPE_IPV4] = {
+		PATTERN_STATE_INNER_IPV4, &handle_pattern_inner_ipv4,
+	},
+	[PATTERN_STATE_INNER_VLAN][RTE_FLOW_ITEM_TYPE_IPV6] = {
+		PATTERN_STATE_INNER_IPV6, &handle_pattern_inner_ipv6,
+	},
 	[PATTERN_STATE_INNER_ETH][RTE_FLOW_ITEM_TYPE_IPV4] = {
 		PATTERN_STATE_INNER_IPV4, &handle_pattern_inner_ipv4,
 	},
@@ -804,159 +874,293 @@ static const action_transitions_t action_transitions_local = {
 	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_SET_MAC_SRC] = {
 		ACTION_STATE_ROUTING_SMAC, &handle_action_set_mac_src
 	},
-	[ACTION_STATE_ROUTING_SMAC][RTE_FLOW_ACTION_TYPE_SET_MAC_DST] = {
-		ACTION_STATE_ROUTING_SMAC_DMAC, &handle_action_set_mac_dst,
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_OF_POP_VLAN] = {
+		ACTION_STATE_POP_VLAN, &handle_action_pop_inner_vlan
 	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_OF_PUSH_VLAN] = {
+		ACTION_STATE_PUSH_VLAN, &handle_action_push_inner_vlan
+	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_VID] = {
+		ACTION_STATE_SET_VLAN_VID, &handle_action_set_inner_vlan_vid
+	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_SET_IPV4_SRC] = {
+		ACTION_STATE_SET_IPV4_SRC, &handle_action_set_ipv4_src
+	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
+		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst
+	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
+		ACTION_STATE_PORT_ID, &handle_action_port_id_local
+	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_DROP] = {
+		ACTION_STATE_DROP, &handle_action_drop
+	},
+
+	[ACTION_STATE_ROUTING_SMAC][RTE_FLOW_ACTION_TYPE_SET_MAC_DST] = {
+		ACTION_STATE_ROUTING_SMAC_DMAC, &handle_action_set_mac_dst
+	},
+
 	[ACTION_STATE_ROUTING_SMAC_DMAC][RTE_FLOW_ACTION_TYPE_DEC_TTL] = {
 		ACTION_STATE_ROUTING_SMAC_DMAC_TTL, &handle_action_local_dec_ttl
+	},
+
+	[ACTION_STATE_ROUTING_SMAC_DMAC_TTL][RTE_FLOW_ACTION_TYPE_OF_POP_VLAN] = {
+		ACTION_STATE_POP_VLAN, &handle_action_pop_inner_vlan
+	},
+	[ACTION_STATE_ROUTING_SMAC_DMAC_TTL][RTE_FLOW_ACTION_TYPE_OF_PUSH_VLAN] = {
+		ACTION_STATE_PUSH_VLAN, &handle_action_push_inner_vlan
+	},
+	[ACTION_STATE_ROUTING_SMAC_DMAC_TTL][RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_VID] = {
+		ACTION_STATE_SET_VLAN_VID, &handle_action_set_inner_vlan_vid
+	},
+	[ACTION_STATE_ROUTING_SMAC_DMAC_TTL][RTE_FLOW_ACTION_TYPE_SET_IPV4_SRC] = {
+		ACTION_STATE_SET_IPV4_SRC, &handle_action_set_ipv4_src
+	},
+	[ACTION_STATE_ROUTING_SMAC_DMAC_TTL][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
+		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst
 	},
 	[ACTION_STATE_ROUTING_SMAC_DMAC_TTL][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
 		ACTION_STATE_PORT_ID, &handle_action_port_id_local
 	},
 
-	[ACTION_STATE_ROUTING_SMAC_DMAC_TTL][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
+	[ACTION_STATE_POP_VLAN][RTE_FLOW_ACTION_TYPE_SET_IPV4_SRC] = {
+		ACTION_STATE_SET_IPV4_SRC, &handle_action_set_ipv4_src
+	},
+	[ACTION_STATE_POP_VLAN][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
 		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst
 	},
-	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
-		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst
-	},
-	[ACTION_STATE_SET_IPV4_DST][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
+	[ACTION_STATE_POP_VLAN][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
 		ACTION_STATE_PORT_ID, &handle_action_port_id_local
 	},
 
-	[ACTION_STATE_ROUTING_SMAC_DMAC][RTE_FLOW_ACTION_TYPE_SET_IPV4_SRC] = {
+	[ACTION_STATE_PUSH_VLAN][RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_VID] = {
+		ACTION_STATE_SET_VLAN_VID, &handle_action_set_inner_vlan_vid
+	},
+
+	[ACTION_STATE_SET_VLAN_VID][RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_PCP] = {
+		ACTION_STATE_SET_VLAN_PCP, &handle_action_set_inner_vlan_pcp
+	},
+
+	[ACTION_STATE_SET_VLAN_PCP][RTE_FLOW_ACTION_TYPE_SET_IPV4_SRC] = {
 		ACTION_STATE_SET_IPV4_SRC, &handle_action_set_ipv4_src
 	},
-	[ACTION_STATE_SET_IPV4_SRC][RTE_FLOW_ACTION_TYPE_DEC_TTL] = {
-		ACTION_STATE_ROUTING_SMAC_DMAC_TTL, &handle_action_local_dec_ttl
+	[ACTION_STATE_SET_VLAN_PCP][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
+		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst
 	},
-	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_SET_IPV4_SRC] = {
-		ACTION_STATE_SET_IPV4_SRC, &handle_action_set_ipv4_src
+	[ACTION_STATE_SET_VLAN_PCP][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
+		ACTION_STATE_PORT_ID, &handle_action_port_id_local
 	},
+
 	[ACTION_STATE_SET_IPV4_SRC][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
 		ACTION_STATE_PORT_ID, &handle_action_port_id_local
 	},
 
-	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
+	[ACTION_STATE_SET_IPV4_DST][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
 		ACTION_STATE_PORT_ID, &handle_action_port_id_local
-	},
-	[ACTION_STATE_PORT_ID][RTE_FLOW_ACTION_TYPE_END] = {
-		ACTION_STATE_END, NULL
 	},
 
 	[ACTION_STATE_PORT_ID][RTE_FLOW_ACTION_TYPE_MIRROR] = {
 		ACTION_STATE_MIRROR, &handle_action_mirror
 	},
+	[ACTION_STATE_PORT_ID][RTE_FLOW_ACTION_TYPE_END] = {
+		ACTION_STATE_END, NULL
+	},
+
 	[ACTION_STATE_MIRROR][RTE_FLOW_ACTION_TYPE_END] = {
 		ACTION_STATE_END, NULL
 	},
 
-	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_DROP] = {
-		ACTION_STATE_DROP, &handle_action_drop,
-	},
 	[ACTION_STATE_DROP][RTE_FLOW_ACTION_TYPE_END] = {
 		ACTION_STATE_END, NULL
 	},
 };
 
 static const action_transitions_t action_transitions_egress = {
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_OF_POP_VLAN] = {
+		ACTION_STATE_POP_VLAN, &handle_action_pop_inner_vlan
+	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_OF_PUSH_VLAN] = {
+		ACTION_STATE_PUSH_VLAN, &handle_action_push_inner_vlan
+	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_VID] = {
+		ACTION_STATE_SET_VLAN_VID, &handle_action_set_inner_vlan_vid
+	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_SET_IPV4_SRC] = {
+		ACTION_STATE_SET_IPV4_SRC, &handle_action_set_ipv4_src
+	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_VXLAN_ENCAP] = {
+		ACTION_STATE_ENCAP_VXLAN, &handle_action_vxlan_encap
+	},
 	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_RAW_DECAP] = {
 		ACTION_STATE_RAW_DECAP, &handle_action_raw_decap_l2
+	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_RAW_ENCAP] = {
+		ACTION_STATE_RAW_ENCAP, &handle_action_raw_encap
+	},
+
+	[ACTION_STATE_POP_VLAN][RTE_FLOW_ACTION_TYPE_SET_IPV4_SRC] = {
+		ACTION_STATE_SET_IPV4_SRC, &handle_action_set_ipv4_src
+	},
+	[ACTION_STATE_POP_VLAN][RTE_FLOW_ACTION_TYPE_VXLAN_ENCAP] = {
+		ACTION_STATE_ENCAP_VXLAN, &handle_action_vxlan_encap
+	},
+	[ACTION_STATE_POP_VLAN][RTE_FLOW_ACTION_TYPE_RAW_DECAP] = {
+		ACTION_STATE_RAW_DECAP, &handle_action_raw_decap_l2
+	},
+	[ACTION_STATE_POP_VLAN][RTE_FLOW_ACTION_TYPE_RAW_ENCAP] = {
+		ACTION_STATE_RAW_ENCAP, &handle_action_raw_encap
+	},
+
+	[ACTION_STATE_PUSH_VLAN][RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_VID] = {
+		ACTION_STATE_SET_VLAN_VID, &handle_action_set_inner_vlan_vid
+	},
+
+	[ACTION_STATE_SET_VLAN_VID][RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_PCP] = {
+		ACTION_STATE_SET_VLAN_PCP, &handle_action_set_inner_vlan_pcp
+	},
+
+	[ACTION_STATE_SET_VLAN_PCP][RTE_FLOW_ACTION_TYPE_SET_IPV4_SRC] = {
+		ACTION_STATE_SET_IPV4_SRC, &handle_action_set_ipv4_src
+	},
+	[ACTION_STATE_SET_VLAN_PCP][RTE_FLOW_ACTION_TYPE_VXLAN_ENCAP] = {
+		ACTION_STATE_ENCAP_VXLAN, &handle_action_vxlan_encap
+	},
+	[ACTION_STATE_SET_VLAN_PCP][RTE_FLOW_ACTION_TYPE_RAW_ENCAP] = {
+		ACTION_STATE_RAW_ENCAP, &handle_action_raw_encap
+	},
+
+	[ACTION_STATE_SET_IPV4_SRC][RTE_FLOW_ACTION_TYPE_VXLAN_ENCAP] = {
+		ACTION_STATE_ENCAP_VXLAN, &handle_action_vxlan_encap
 	},
 	[ACTION_STATE_SET_IPV4_SRC][RTE_FLOW_ACTION_TYPE_RAW_DECAP] = {
 		ACTION_STATE_RAW_DECAP, &handle_action_raw_decap_l2
 	},
+	[ACTION_STATE_SET_IPV4_SRC][RTE_FLOW_ACTION_TYPE_RAW_ENCAP] = {
+		ACTION_STATE_RAW_ENCAP, &handle_action_raw_encap
+	},
+
+	[ACTION_STATE_ENCAP_VXLAN][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
+		ACTION_STATE_PORT_ID, &handle_action_port_id
+	},
+
 	[ACTION_STATE_RAW_DECAP][RTE_FLOW_ACTION_TYPE_DEC_TTL] = {
 		ACTION_STATE_RAW_DEC_TTL, &handle_action_egress_dec_ttl
 	},
+
 	[ACTION_STATE_RAW_DEC_TTL][RTE_FLOW_ACTION_TYPE_RAW_ENCAP] = {
 		ACTION_STATE_RAW_ENCAP, &handle_action_raw_encap
 	},
 
-	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_SET_IPV4_SRC] = {
-		ACTION_STATE_SET_IPV4_SRC, &handle_action_set_ipv4_src
-	},
-	[ACTION_STATE_SET_IPV4_SRC][RTE_FLOW_ACTION_TYPE_RAW_ENCAP] = {
-		ACTION_STATE_RAW_ENCAP, &handle_action_raw_encap,
-	},
-
-	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_VXLAN_ENCAP] = {
-		ACTION_STATE_ENCAP_VXLAN, &handle_action_vxlan_encap,
-	},
-	[ACTION_STATE_SET_IPV4_SRC][RTE_FLOW_ACTION_TYPE_VXLAN_ENCAP] = {
-		ACTION_STATE_ENCAP_VXLAN, &handle_action_vxlan_encap
-	},
-	[ACTION_STATE_ENCAP_VXLAN][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
-		ACTION_STATE_PORT_ID, &handle_action_port_id,
-	},
-
-	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_RAW_ENCAP] = {
-		ACTION_STATE_RAW_ENCAP, &handle_action_raw_encap,
-	},
 	[ACTION_STATE_RAW_ENCAP][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
-		ACTION_STATE_PORT_ID, &handle_action_port_id,
+		ACTION_STATE_PORT_ID, &handle_action_port_id
 	},
 
 	[ACTION_STATE_PORT_ID][RTE_FLOW_ACTION_TYPE_MIRROR] = {
 		ACTION_STATE_MIRROR, &handle_action_mirror
 	},
+
 	[ACTION_STATE_MIRROR][RTE_FLOW_ACTION_TYPE_END] = {
-		ACTION_STATE_END, NULL,
+		ACTION_STATE_END, NULL
 	},
 
 	[ACTION_STATE_PORT_ID][RTE_FLOW_ACTION_TYPE_END] = {
-		ACTION_STATE_END, NULL,
+		ACTION_STATE_END, NULL
 	},
 };
 
 static const action_transitions_t action_transitions_ingress = {
-	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_RAW_DECAP] = {
-		ACTION_STATE_RAW_DECAP, &handle_action_raw_decap,
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_VXLAN_DECAP] = {
+		ACTION_STATE_DECAP_VXLAN, &handle_action_vxlan_decap
 	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_RAW_DECAP] = {
+		ACTION_STATE_RAW_DECAP, &handle_action_raw_decap
+	},
+	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_DROP] = {
+		ACTION_STATE_DROP, &handle_action_drop
+	},
+
+	[ACTION_STATE_DECAP_VXLAN][RTE_FLOW_ACTION_TYPE_OF_POP_VLAN] = {
+		ACTION_STATE_POP_VLAN, &handle_action_pop_inner_vlan
+	},
+	[ACTION_STATE_DECAP_VXLAN][RTE_FLOW_ACTION_TYPE_OF_PUSH_VLAN] = {
+		ACTION_STATE_PUSH_VLAN, &handle_action_push_inner_vlan
+	},
+	[ACTION_STATE_DECAP_VXLAN][RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_VID] = {
+		ACTION_STATE_SET_VLAN_VID, &handle_action_set_inner_vlan_vid
+	},
+	[ACTION_STATE_DECAP_VXLAN][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
+		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst
+	},
+	[ACTION_STATE_DECAP_VXLAN][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
+		ACTION_STATE_PORT_ID, &handle_action_port_id_ingress_l2_check
+	},
+
 	[ACTION_STATE_RAW_DECAP][RTE_FLOW_ACTION_TYPE_RAW_ENCAP] = {
 		ACTION_STATE_RAW_ENCAP, &handle_action_raw_encap_l2
 	},
-
+	[ACTION_STATE_RAW_DECAP][RTE_FLOW_ACTION_TYPE_OF_POP_VLAN] = {
+		ACTION_STATE_POP_VLAN, &handle_action_pop_inner_vlan
+	},
+	[ACTION_STATE_RAW_DECAP][RTE_FLOW_ACTION_TYPE_OF_PUSH_VLAN] = {
+		ACTION_STATE_PUSH_VLAN, &handle_action_push_inner_vlan
+	},
+	[ACTION_STATE_RAW_DECAP][RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_VID] = {
+		ACTION_STATE_SET_VLAN_VID, &handle_action_set_inner_vlan_vid
+	},
 	[ACTION_STATE_RAW_DECAP][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
 		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst
-	},
-	[ACTION_STATE_RAW_ENCAP][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
-		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst
-	},
-	[ACTION_STATE_SET_IPV4_DST][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
-		ACTION_STATE_PORT_ID, &handle_action_port_id
-	},
-
-	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_VXLAN_DECAP] = {
-		ACTION_STATE_DECAP_VXLAN, &handle_action_vxlan_decap,
-	},
-	[ACTION_STATE_DECAP_VXLAN][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
-		ACTION_STATE_PORT_ID, &handle_action_port_id_ingress_l2_check,
-	},
-	[ACTION_STATE_DECAP_VXLAN][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
-		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst,
-	},
-
-	[ACTION_STATE_RAW_ENCAP][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
-		ACTION_STATE_PORT_ID, &handle_action_port_id
 	},
 	[ACTION_STATE_RAW_DECAP][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
 		ACTION_STATE_PORT_ID, &handle_action_port_id_ingress_l2_check
 	},
-	[ACTION_STATE_PORT_ID][RTE_FLOW_ACTION_TYPE_END] = {
-		ACTION_STATE_END, NULL,
+
+	[ACTION_STATE_RAW_ENCAP][RTE_FLOW_ACTION_TYPE_OF_PUSH_VLAN] = {
+		ACTION_STATE_PUSH_VLAN, &handle_action_push_inner_vlan
+	},
+	[ACTION_STATE_RAW_ENCAP][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
+		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst
+	},
+	[ACTION_STATE_RAW_ENCAP][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
+		ACTION_STATE_PORT_ID, &handle_action_port_id
+	},
+
+	[ACTION_STATE_POP_VLAN][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
+		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst
+	},
+	[ACTION_STATE_POP_VLAN][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
+		ACTION_STATE_PORT_ID, &handle_action_port_id_ingress_l2_check
+	},
+
+	[ACTION_STATE_PUSH_VLAN][RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_VID] = {
+		ACTION_STATE_SET_VLAN_VID, &handle_action_set_inner_vlan_vid
+	},
+
+	[ACTION_STATE_SET_VLAN_VID][RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_PCP] = {
+		ACTION_STATE_SET_VLAN_PCP, &handle_action_set_inner_vlan_pcp
+	},
+
+	[ACTION_STATE_SET_VLAN_PCP][RTE_FLOW_ACTION_TYPE_SET_IPV4_DST] = {
+		ACTION_STATE_SET_IPV4_DST, &handle_action_set_ipv4_dst
+	},
+	[ACTION_STATE_SET_VLAN_PCP][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
+		ACTION_STATE_PORT_ID, &handle_action_port_id
+	},
+
+	[ACTION_STATE_SET_IPV4_DST][RTE_FLOW_ACTION_TYPE_PORT_ID] = {
+		ACTION_STATE_PORT_ID, &handle_action_port_id
 	},
 
 	[ACTION_STATE_PORT_ID][RTE_FLOW_ACTION_TYPE_MIRROR] = {
 		ACTION_STATE_MIRROR, &handle_action_mirror
 	},
-	[ACTION_STATE_MIRROR][RTE_FLOW_ACTION_TYPE_END] = {
-		ACTION_STATE_END, NULL,
+	[ACTION_STATE_PORT_ID][RTE_FLOW_ACTION_TYPE_END] = {
+		ACTION_STATE_END, NULL
 	},
 
-	[ACTION_STATE_START][RTE_FLOW_ACTION_TYPE_DROP] = {
-		ACTION_STATE_DROP, &handle_action_drop,
+	[ACTION_STATE_MIRROR][RTE_FLOW_ACTION_TYPE_END] = {
+		ACTION_STATE_END, NULL
 	},
+
 	[ACTION_STATE_DROP][RTE_FLOW_ACTION_TYPE_END] = {
 		ACTION_STATE_END, NULL
 	},

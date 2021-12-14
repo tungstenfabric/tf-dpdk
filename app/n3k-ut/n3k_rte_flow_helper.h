@@ -28,6 +28,7 @@ void set_pattern_vxlan(rte_le32_t vni);
 void set_pattern_mpls(rte_le32_t label, uint8_t tc);
 void set_pattern_inner_eth(
 	struct rte_ether_addr src_mac, struct rte_ether_addr dst_mac);
+void set_pattern_inner_vlan(rte_le16_t tci);
 void set_pattern_inner_ipv4(
 	rte_le32_t src_ip, rte_le32_t dst_ip, uint8_t ip_proto);
 void set_pattern_inner_ipv6(
@@ -47,6 +48,10 @@ void set_action_raw_decap_mpls(void);
 void set_action_raw_decap_eth(void);
 void set_action_ipv4_src(uint32_t ip);
 void set_action_ipv4_dst(uint32_t ip);
+void set_action_push_vlan(void);
+void set_action_set_vlan_vid(rte_le16_t vid);
+void set_action_set_vlan_pcp(rte_le16_t pcp);
+void set_action_pop_vlan(void);
 void set_action_port_id(rte_le32_t port);
 void set_action_drop(void);
 void set_action_void(void);

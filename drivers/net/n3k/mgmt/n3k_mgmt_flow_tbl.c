@@ -90,6 +90,11 @@ int n3k_mgmt_flow_tbl_fill_key_regs(struct n3k_mgmt_hw *hw,
 		key_regs->key_15.field.dst_mac_1 = BITS_RANGE64(dst_mac, 32, 16);
 		key_regs->key_15.field.src_mac_0 = BITS_RANGE64(src_mac, 0, 16);
 		key_regs->key_16.field.src_mac_1 = BITS_RANGE64(src_mac, 16, 32);
+
+		key_regs->key_2.field.tci_vlan_a0 =
+			BITS_RANGE64(key->l2.vlan_tci, 0, 8);
+		key_regs->key_3.field.tci_vlan_a1 =
+			BITS_RANGE64(key->l2.vlan_tci, 8, 8);
 	}
 
 	// L3 key regs
@@ -269,6 +274,25 @@ int n3k_mgmt_flow_tbl_fill_res_regs(
 	else if (action->nat_type == N3K_MGMT_FLOW_TBL_NAT_TYPE_SNAT) {
 		res_regs->res_17.field.ip_nat_sa_en = 1;
 		res_regs->res_7.field.ip_sa_0 = action->nat.modified_ip;
+	}
+
+	// Vlan action
+	switch(action->vlan.type) {
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT:
+		res_regs->res_17.field.insert_vlan = 1;
+		res_regs->res_14.field.mod_vid_vlan = action->vlan.tci & 0xFFF;
+		res_regs->res_14.field.mod_cfi_cos_vlan = BITS_RANGE32(action->vlan.tci, 12, 4);
+		break;
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD:
+		res_regs->res_17.field.mod_vlan = 1;
+		res_regs->res_14.field.mod_vid_vlan = action->vlan.tci & 0xFFF;
+		res_regs->res_14.field.mod_cfi_cos_vlan = BITS_RANGE32(action->vlan.tci, 12, 4);
+		break;
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP:
+		res_regs->res_17.field.strip_vlan = 1;
+		break;
+	case N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_NONE:
+		break;
 	}
 
 	// Encap/decap/local specific action regs
@@ -716,6 +740,9 @@ int n3k_mgmt_flow_tbl_fill_key_info(struct n3k_mgmt_hw *hw,
 		key->use_l2_key = true;
 		key->l2.dst_mac = n3k_mgmt_convert_uint_to_rte_ether_addr(dst_mac);
 		key->l2.src_mac = n3k_mgmt_convert_uint_to_rte_ether_addr(src_mac);
+
+		key->l2.vlan_tci = key_regs->key_2.field.tci_vlan_a0 |
+			(key_regs->key_3.field.tci_vlan_a1 << 8);
 	}
 
 	// L3 key info
@@ -898,6 +925,22 @@ int n3k_mgmt_flow_tbl_fill_res_info(struct n3k_mgmt_hw *hw,
 	}
 
 	action->queue = res_regs->res_16.field.qid;
+
+	if (res_regs->res_17.field.insert_vlan == 1) {
+		action->vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT;
+		action->vlan.tci = res_regs->res_14.field.mod_vid_vlan;
+		action->vlan.tci =
+			res_regs->res_14.field.mod_vid_vlan |
+			(res_regs->res_14.field.mod_cfi_cos_vlan << 12);
+	} else if (res_regs->res_17.field.mod_vlan == 1) {
+		action->vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD;
+		action->vlan.tci = res_regs->res_14.field.mod_vid_vlan;
+		action->vlan.tci =
+			res_regs->res_14.field.mod_vid_vlan |
+			(res_regs->res_14.field.mod_cfi_cos_vlan << 12);
+	} else if (res_regs->res_17.field.strip_vlan == 1) {
+		action->vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP;
+	}
 
 	if (res_regs->res_17.field.ip_nat_da_en) {
 		action->nat_type = N3K_MGMT_FLOW_TBL_NAT_TYPE_DNAT;

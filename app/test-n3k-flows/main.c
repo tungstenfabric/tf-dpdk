@@ -55,6 +55,8 @@ const struct n3k_vdev_dev_id DST_MIRROR_DEVICE_ID = (struct n3k_vdev_dev_id) {
 #define MBUF_CACHE_SIZE 250
 #define BURST_SIZE 32
 
+#define VLAN_TCI(vid, pcp) ((vid) | ((pcp) << 13))
+
 static const struct rte_eth_conf port_conf_default = {
 	.rxmode = {
 		.max_rx_pkt_len = RTE_ETHER_MAX_LEN,
@@ -210,6 +212,55 @@ create_local_flow_entry(int id, enum key_address_type kat)
 }
 
 __rte_unused static struct n3k_mgmt_flow_entry
+create_local_flow_modify_vlan_entry(int id, enum key_address_type kat)
+{
+	struct n3k_mgmt_flow_entry flow;
+	memset(&flow, 0, sizeof(flow));
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+
+	struct rte_ether_addr key_smac = {
+		.addr_bytes = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15}
+	};
+	struct rte_ether_addr key_dmac = {
+		.addr_bytes = {0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b}
+	};
+
+	key->use_tunnel_key = false;
+	key->use_l2_key = true;
+	key->l2.src_mac = key_smac;
+	key->l2.dst_mac = key_dmac;
+	key->l2.vlan_tci = VLAN_TCI(10 + id, 4);
+
+	prepare_l3_key(&key->l3, kat, 1);
+
+	key->l4.src_port = 1116 + id;
+	key->l4.dst_port = 1117;
+	key->port.port_id = get_port_id_by_name(SRC_PORT_NAME);
+	key->port.device_id = SRC_DEVICE_ID;
+	key->l3.ip_prot = IPPROTO_UDP;
+
+	struct rte_ether_addr action_smac = {
+		.addr_bytes = {0x15, 0x14, 0x13, 0x12, 0x11, 0x10}
+	};
+	struct rte_ether_addr action_dmac = {
+		.addr_bytes = {0x1b, 0x1a, 0x19, 0x18, 0x17, 0x16}
+	};
+
+	action->port.port_id = get_port_id_by_name(DST_PORT_NAME);
+	action->port.device_id = DST_DEVICE_ID;
+	action->type = N3K_MGMT_FLOW_TBL_ACTION_LOCAL;
+	action->local_action.decr_ttl = true;
+	action->local_action.modify_l2 = true;
+	action->local_action.modified_l2.src_mac = action_smac;
+	action->local_action.modified_l2.dst_mac = action_dmac;
+	action->vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_MOD;
+	action->vlan.tci = VLAN_TCI(20 + id, 5);
+
+	return flow;
+}
+
+__rte_unused static struct n3k_mgmt_flow_entry
 create_encap_flow_entry(int id, enum key_address_type kat)
 {
 	struct n3k_mgmt_flow_entry flow;
@@ -260,6 +311,63 @@ create_encap_flow_entry(int id, enum key_address_type kat)
 	action->encap_action.mpls_udp.label = 12345;
 	action->encap_action.mpls_udp.tos = 3;
 	action->encap_action.decr_ttl = true;
+
+	return flow;
+}
+
+__rte_unused static struct n3k_mgmt_flow_entry
+create_encap_strip_vlan_flow_entry(int id, enum key_address_type kat)
+{
+	struct n3k_mgmt_flow_entry flow;
+	memset(&flow, 0, sizeof(flow));
+	struct rte_ether_addr *smac = &flow.action.tunnel.smac_raw;
+	struct n3k_mgmt_tunnel_tbl_entry *tunnel = &flow.action.tunnel.tunnel_raw;
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+
+	*smac = (struct rte_ether_addr) {
+		.addr_bytes = {0x25, 0x24, 0x23, 0x22, 0x21, 0x20}
+	};
+
+	tunnel->type = N3K_MGMT_TUNNEL_TYPE_MPLSOUDP;
+	tunnel->l2.dst_mac = (struct rte_ether_addr) {
+		.addr_bytes = {0x2b, 0x2a, 0x29, 0x28, 0x27, 0x26}
+	};
+	tunnel->l2.eth_type = RTE_ETHER_TYPE_IPV4;
+	tunnel->l3.src_ip = RTE_IPV4(2, 2, 2, 8);
+	tunnel->l3.dst_ip = RTE_IPV4(2, 2, 2, 9);
+	tunnel->l3.ip_prot = IPPROTO_UDP;
+	tunnel->l3.ttl = 67;
+	tunnel->l3.tos = 0;
+	tunnel->l4.dst_port = UDP_PORT_MPLS;
+
+	key->use_tunnel_key = false;
+	key->use_l2_key = true;
+	key->l2.src_mac = (struct rte_ether_addr) {
+		.addr_bytes = {0x20, 0x21, 0x22, 0x23, 0x24, 0x25}
+	};
+	key->l2.dst_mac = (struct rte_ether_addr) {
+		.addr_bytes = {0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b}
+	};
+	key->l2.vlan_tci = VLAN_TCI(10 + id, 4);
+
+	prepare_l3_key(&key->l3, kat, 2);
+
+	key->l4.src_port = 2226 + id;
+	key->l4.dst_port = 2227;
+	key->port.port_id = get_port_id_by_name(SRC_PORT_NAME);
+	key->port.device_id = SRC_DEVICE_ID;
+	key->l3.ip_prot = IPPROTO_UDP;
+
+	action->port.port_id = get_port_id_by_name(DST_PORT_NAME);
+	action->port.device_id = DST_DEVICE_ID;
+	action->type = N3K_MGMT_FLOW_TBL_ACTION_ENCAP;
+	action->encap_action.type = N3K_MGMT_TUNNEL_TYPE_MPLSOUDP;
+	action->encap_action.mpls_udp.src_port = 2228;
+	action->encap_action.mpls_udp.label = 12345;
+	action->encap_action.mpls_udp.tos = 3;
+	action->encap_action.decr_ttl = true;
+	action->vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_STRIP;
 
 	return flow;
 }
@@ -437,6 +545,53 @@ create_decap_flow_entry(int id, enum key_address_type kat)
 }
 
 __rte_unused static struct n3k_mgmt_flow_entry
+create_decap_insert_vlan_flow_entry(int id, enum key_address_type kat)
+{
+	struct n3k_mgmt_flow_entry flow;
+	memset(&flow, 0, sizeof(flow));
+	struct n3k_mgmt_vplkp_tbl_res *vplkp = &flow.key.vplkp_raw;
+	struct n3k_mgmt_flow_tbl_key *key = &flow.key.key_raw;
+	struct n3k_mgmt_flow_tbl_action *action = &flow.action.action_raw;
+
+	uint32_t vplkp_key = 54321;
+	vplkp->keymask = 0;
+	vplkp->vport = N3K_MGMT_VPLKP_TBL_VPORT_L2PACKET;
+
+	key->use_l2_key = true;
+	key->l2.src_mac = (struct rte_ether_addr) {
+		.addr_bytes = {0x40, 0x41, 0x42, 0x43, 0x44, 0x45}
+	};
+	key->l2.dst_mac = (struct rte_ether_addr) {
+		.addr_bytes = {0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b}
+	};
+
+	prepare_l3_key(&key->l3, kat, 4);
+
+	key->l3.ip_prot = IPPROTO_UDP;
+	key->l4.src_port = 4446 + id;
+	key->l4.dst_port = 4447;
+	key->port.port_id = get_port_id_by_name(SRC_PORT_NAME);
+	key->port.device_id = SRC_DEVICE_ID;
+	key->use_tunnel_key = true;
+	key->tunnel.type = N3K_MGMT_TUNNEL_TYPE_MPLSOUDP;
+	key->tunnel.outer_l3.type = N3K_MGMT_FLOW_TBL_L3_TYPE_IPV4;
+	key->tunnel.outer_l3.ipv4.src_ip = RTE_IPV4(4, 4, 4, 8);
+	key->tunnel.outer_l3.ipv4.dst_ip = RTE_IPV4(4, 4, 4, 9);
+	key->tunnel.outer_l3.ip_prot = IPPROTO_UDP;
+	key->tunnel.mpls_udp.label = vplkp_key;
+	key->tunnel.mpls_udp.tos = 3;
+
+	action->type = N3K_MGMT_FLOW_TBL_ACTION_DECAP;
+	action->port.port_id = get_port_id_by_name(DST_PORT_NAME);
+	action->port.device_id = DST_DEVICE_ID;
+	action->decap_action.type = N3K_MGMT_TUNNEL_TYPE_MPLSOUDP;
+	action->vlan.type = N3K_MGMT_FLOW_TBL_VLAN_TAG_TYPE_INSERT;
+	action->vlan.tci = VLAN_TCI(20 + id, 5);
+
+	return flow;
+}
+
+__rte_unused static struct n3k_mgmt_flow_entry
 create_encap_l3_flow_entry(int id, enum key_address_type kat)
 {
 	struct n3k_mgmt_flow_entry flow;
@@ -570,6 +725,24 @@ add_local_flow(struct rte_eth_dev *dev, int id, enum key_address_type kat)
 	return handle;
 }
 
+// local = Ether(src="10:11:12:13:14:15", dst="16:17:18:19:1a:1b")/Dot1Q(vlan=10)/IP(src="1.1.1.6", dst="1.1.1.7")/UDP(sport=1116, dport=1117)
+// local_IPv6 = Ether(src="10:11:12:13:14:15", dst="16:17:18:19:1a:1b")/Dot1Q(vlan=10)/IP(src="101:0101:0101:0101:0101:0101:0101:0106", dst="101:0101:0101:0101:0101:0101:0101:0107")/UDP(sport=1116, dport=1117)
+__rte_unused static struct n3k_mgmt_flow_tbl_handle *
+add_local_modify_vlan_flow(struct rte_eth_dev *dev, int id, enum key_address_type kat)
+{
+	int ret;
+	struct n3k_mgmt_flow_tbl_handle *handle;
+	struct n3k_mgmt_flow_entry entry =
+		create_local_flow_modify_vlan_entry(id, kat);
+
+	ret = rte_pmd_n3k_flow_add(dev, &entry, &handle);
+	if (ret < 0)
+		rte_exit(EXIT_FAILURE, "Error while adding local flow: %s(%d)\n",
+			strerror(-ret), ret);
+
+	return handle;
+}
+
 // local_nat = Ether(src="10:11:12:13:14:15", dst="16:17:18:19:1a:1b")/IP(src="1.1.1.6", dst="1.1.1.7")/UDP(sport=1117, dport=1117)
 // local_nat_IPv6 = Ether(src="10:11:12:13:14:15", dst="16:17:18:19:1a:1b")/IPv6(src="101:101:101:101:101:101:101:106",dst="101:101:101:101:101:101:101:107")/UDP(sport=1117, dport=1117)
 __rte_unused static struct n3k_mgmt_flow_tbl_handle *
@@ -686,6 +859,24 @@ add_encap_flow(struct rte_eth_dev *dev, int id, enum key_address_type kat)
 	return handle;
 }
 
+// encap = Ether(src="20:21:22:23:24:25", dst="26:27:28:29:2a:2b")/Dot1Q(vlan=10)/IP(src="2.2.2.6", dst="2.2.2.7")/UDP(sport=2226, dport=2227)
+// encap_IPv6 = Ether(src="20:21:22:23:24:25", dst="26:27:28:29:2a:2b")/Dot1Q(vlan=10)/IP(src="202:0202:0202:0202:0202:0202:0202:0206", dst="202:0202:0202:0202:0202:0202:0202:0207")/UDP(sport=2226, dport=2227)
+__rte_unused static struct n3k_mgmt_flow_tbl_handle *
+add_encap_strip_vlan_flow(struct rte_eth_dev *dev, int id, enum key_address_type kat)
+{
+	int ret;
+	struct n3k_mgmt_flow_tbl_handle *handle;
+	struct n3k_mgmt_flow_entry entry =
+	    create_encap_strip_vlan_flow_entry(id, kat);
+
+	ret = rte_pmd_n3k_flow_add(dev, &entry, &handle);
+	if (ret < 0)
+		rte_exit(EXIT_FAILURE, "Error while adding local flow: %s(%d)\n",
+			strerror(-ret), ret);
+
+	return handle;
+}
+
 // drop = Ether(src="30:31:32:33:34:35", dst="36:37:38:39:3a:3b")/IP(src="3.3.3.6", dst="3.3.3.7")/UDP(sport=3336, dport=3337)
 // drop_IPv6 = Ether(src="30:31:32:33:34:35", dst="36:37:38:39:3a:3b")/IP(src="303:0303:0303:0303:0303:0303:0303:0306", dst="303:0303:0303:0303:0303:0303:0303:0307")/UDP(sport=3336, dport=3337)
 __rte_unused static struct n3k_mgmt_flow_tbl_handle *
@@ -722,6 +913,24 @@ add_decap_flow(struct rte_eth_dev *dev, int id, enum key_address_type kat)
 		rte_exit(EXIT_FAILURE, "Error while adding local flow: %s(%d)\n",
 			strerror(-ret), ret);
 	}
+
+	return handle;
+}
+
+// decap = Ether()/IP(src="4.4.4.8", dst="4.4.4.9")/UDP(dport=6635)/MPLS(label=54321, cos=3)/Ether(src="40:41:42:43:44:45", dst="46:47:48:49:4a:4b")/IP(src="4.4.4.6", dst="4.4.4.7")/UDP(sport=4446, dport=4447)
+// decap_IPv6 = Ether()/IP(src="4.4.4.8", dst="4.4.4.9")/UDP(dport=6635)/MPLS(label=54321, cos=3)/Ether(src="40:41:42:43:44:45", dst="46:47:48:49:4a:4b")/IP(src="404:0404:0404:0404:0404:0404:0404:0406", dst="404:0404:0404:0404:0404:0404:0404:0407")/UDP(sport=4446, dport=4447)
+__rte_unused static struct n3k_mgmt_flow_tbl_handle *
+add_decap_insert_vlan_flow(struct rte_eth_dev *dev, int id, enum key_address_type kat)
+{
+	int ret;
+	struct n3k_mgmt_flow_tbl_handle *handle;
+	struct n3k_mgmt_flow_entry entry =
+	    create_decap_insert_vlan_flow_entry(id, kat);
+
+	ret = rte_pmd_n3k_flow_add(dev, &entry, &handle);
+	if (ret < 0)
+		rte_exit(EXIT_FAILURE, "Error while adding local flow: %s(%d)\n",
+			strerror(-ret), ret);
 
 	return handle;
 }
@@ -914,7 +1123,12 @@ __rte_unused static void test_flows(struct rte_eth_dev *dev)
 	handles[flow_cnt++] = add_encap_vxlan_flow(dev, 3, IPv6);
 	handles[flow_cnt++] = add_decap_vxlan_flow(dev, 3, IPv4);
 	handles[flow_cnt++] = add_decap_vxlan_flow(dev, 3, IPv6);
-
+	handles[flow_cnt++] = add_local_modify_vlan_flow(dev, 4, IPv4);
+	handles[flow_cnt++] = add_local_modify_vlan_flow(dev, 4, IPv6);
+	handles[flow_cnt++] = add_decap_insert_vlan_flow(dev, 4, IPv4);
+	handles[flow_cnt++] = add_decap_insert_vlan_flow(dev, 4, IPv6);
+	handles[flow_cnt++] = add_encap_strip_vlan_flow(dev, 4, IPv4);
+	handles[flow_cnt++] = add_encap_strip_vlan_flow(dev, 4, IPv6);
 	printf("Flows added successfully\n");
 
 	monitor_flows(dev, handles, flow_cnt);
