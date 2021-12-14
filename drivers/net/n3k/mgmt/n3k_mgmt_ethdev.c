@@ -17,6 +17,7 @@
 #include "n3k_mgmt_log.h"
 #include "n3k_mgmt_rte_flow.h"
 
+#include "n3k_mgmt_info.h"
 #include "n3k_mgmt_lag.h"
 #include "n3k_mgmt_init/n3k_mgmt_init_mq.h"
 #include "vdev/n3k_vdev_device.h"
@@ -121,6 +122,7 @@ static const struct eth_dev_ops n3kmgmt_dev_ops = {
 	.tx_queue_setup = n3k_mgmt_tx_queue_setup,
 
 	.filter_ctrl    = n3k_mgmt_filter_ctrl,
+	.fw_version_get = n3k_mgmt_info_fw_version_get,
 };
 
 static uint16_t

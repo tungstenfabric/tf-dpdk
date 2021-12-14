@@ -34,6 +34,7 @@ DIRS-y += n3kflow-dump
 # DIRS-y += n3k-ut
 DIRS-y += test-n3k-flows
 DIRS-y += n3k-flr-test-app
+DIRS-y += n3k-info
 endif
 
 include $(RTE_SDK)/mk/rte.subdir.mk
