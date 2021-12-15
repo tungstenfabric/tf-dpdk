@@ -80,6 +80,7 @@ n3k_mgmt_info_fw_version_get(struct rte_eth_dev *dev,
 		return -ENOTSUP;
 	}
 
+	printf("FIRMWARE_VERSION: v%02X.r%02X\n", build_version.version, build_version.revision);
 	printf(" \"FPGA_BUILD_VER\": { \"version\": %x, \"revision\": %x, \"milestone\": %x, \"HCL\": %s, \"OVS\": %x },\n",
 		build_version.version, build_version.revision, build_version.milestone,
 		build_version.hcl_id == 0x0C ? "true" : "false", build_version.ovs);
