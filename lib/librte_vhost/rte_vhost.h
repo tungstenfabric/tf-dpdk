@@ -613,6 +613,17 @@ uint32_t rte_vhost_get_queue_num(int vid);
 uint16_t rte_vhost_get_vring_num(int vid);
 
 /**
+ * Get the number of enabled vrings on the device.
+ *
+ * @param vid
+ *  vhost device ID
+ *
+ * @return
+ *  The number of active vrings, 0 on failure
+ */
+uint16_t rte_vhost_get_active_vring_num(int vid);
+
+/**
  * Get the virtio net device's ifname, which is the vhost-user socket
  * file path.
  *
