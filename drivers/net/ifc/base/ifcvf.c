@@ -83,6 +83,7 @@ next:
 
 	hw->lm_cfg = hw->mem_resource[4].addr;
 
+	hw->mq_cfg = hw->mem_resource[4].addr + IFCVF_MQ_OFFSET;
 	if (hw->common_cfg == NULL || hw->notify_base == NULL ||
 			hw->isr == NULL || hw->dev_cfg == NULL) {
 		DEBUGOUT("capability incomplete\n");
@@ -307,6 +308,15 @@ ifcvf_disable_logging(struct ifcvf_hw *hw)
 
 	lm_cfg = hw->lm_cfg;
 	*(u32 *)(lm_cfg + IFCVF_LM_LOGGING_CTRL) = IFCVF_LM_DISABLE;
+}
+
+void
+ifcvf_enable_multiqueue(struct ifcvf_hw *hw, u16 nr_queue_pair)
+{
+	u8 *mq_cfg;
+
+	mq_cfg = hw->mq_cfg;
+	*(u32 *)mq_cfg = nr_queue_pair;
 }
 
 void

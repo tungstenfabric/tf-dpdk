@@ -61,6 +61,9 @@ n3k_mgmt_init_hw_virtio_features_set(struct n3k_mgmt_hw *hw, u8 idx, bool is_mq)
 	VIRTIO_DMA_CSR_VDC_ROM4_t vdc_rom4 = { .val = 0 };
 	VIRTIO_DMA_CSR_VDC_ROM5_t vdc_rom5 = { .val = 0 };
 
+	if (idx != 0) {
+		features |= BIT_ULL(VIRTIO_NET_F_MAC);
+	}
 	if (is_mq) {
 		features |= BIT_ULL(VIRTIO_NET_F_MQ);
 		features |= BIT_ULL(VIRTIO_NET_F_CTRL_VQ);

@@ -6,7 +6,6 @@
 #define _IFCVF_OSDEP_H_
 
 #include <stdint.h>
-#include <stdbool.h>
 #include <linux/pci_regs.h>
 
 #include <rte_cycles.h>

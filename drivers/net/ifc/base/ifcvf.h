@@ -46,6 +46,7 @@
 #define IFCVF_LM_CFG_SIZE		0x40
 #define IFCVF_LM_RING_STATE_OFFSET	0x20
 
+#define IFCVF_MQ_OFFSET			0x28
 #define IFCVF_LM_LOGGING_CTRL		0x0
 
 #define IFCVF_LM_BASE_ADDR_LOW		0x10
@@ -122,7 +123,6 @@ struct vring_info {
 	u16 size;
 	u16 last_avail_idx;
 	u16 last_used_idx;
-	bool enable;
 };
 
 struct ifcvf_hw {
@@ -135,6 +135,7 @@ struct ifcvf_hw {
 	u16    *notify_base;
 	u16    *notify_addr[IFCVF_MAX_QUEUES * 2];
 	u8     *lm_cfg;
+	u8     *mq_cfg;
 	struct vring_info vring[IFCVF_MAX_QUEUES * 2];
 	u8 nr_vring;
 	struct ifcvf_pci_mem_resource mem_resource[IFCVF_PCI_MAX_RESOURCE];
@@ -157,6 +158,9 @@ ifcvf_enable_logging(struct ifcvf_hw *hw, u64 log_base, u64 log_size);
 
 void
 ifcvf_disable_logging(struct ifcvf_hw *hw);
+
+void
+ifcvf_enable_multiqueue(struct ifcvf_hw *hw, u16 nr_queue_pair);
 
 void
 ifcvf_notify_queue(struct ifcvf_hw *hw, u16 qid);
