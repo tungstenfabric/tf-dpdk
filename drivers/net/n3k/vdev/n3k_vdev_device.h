@@ -24,6 +24,7 @@ struct n3k_vdev_dev_shared;
 
 struct n3k_vdev_dev_info {
 	struct n3k_vdev_dev_shared *shared;
+	struct rte_ether_addr mac;
 	uint16_t id;
 	enum n3k_vdev_dev_type type;
 };

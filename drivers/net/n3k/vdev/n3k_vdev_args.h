@@ -21,6 +21,8 @@ struct n3k_vdev_args {
 	struct rte_eth_dev *mgmt_dev;
 	uint16_t vfs_count;
 	uint16_t vfs[N3K_VF_PORTS_MAX_COUNT];
+	uint8_t mac_count;
+	struct rte_ether_addr macs[N3K_PHY_REPRESENTORS_COUNT];
 	bool is_lag_enabled;
 };
 

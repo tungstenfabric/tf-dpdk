@@ -16,6 +16,8 @@
 
 #include "mgmt/n3k_mgmt_ethdev.h"
 
+const struct rte_ether_addr null_mac = {{0}};
+
 static int
 n3k_vdev_probe(struct rte_vdev_device *dev)
 {
@@ -56,6 +58,7 @@ n3k_vdev_probe(struct rte_vdev_device *dev)
 	for (i = 0; i < N3K_PHY_REPRESENTORS_COUNT; ++i) {
 		dev_info.id = i;
 		dev_info.type = N3K_VDEV_DEV_TYPE_PHY;
+		dev_info.mac = (i<args.mac_count)?args.macs[i]:null_mac;
 
 		ret = n3k_vdev_dev_create(dev, &dev_info, &virtual_devices[i]);
 		if (ret) {
@@ -68,6 +71,7 @@ n3k_vdev_probe(struct rte_vdev_device *dev)
 	for (i = 0; i < args.vfs_count; ++i) {
 		dev_info.id = args.vfs[i];
 		dev_info.type = N3K_VDEV_DEV_TYPE_VF;
+		dev_info.mac = null_mac;
 
 		ret = n3k_vdev_dev_create(dev, &dev_info,
 			&virtual_devices[i + N3K_PHY_REPRESENTORS_COUNT]);
@@ -119,6 +123,7 @@ RTE_PMD_REGISTER_PARAM_STRING(net_n3k,
 	"vfs=<string> "
 	"mgmt=<string> "
 	"lag=<string> "
+	"mac=<string> "
 );
 
 RTE_INIT(n3k_vdev_init_log)
