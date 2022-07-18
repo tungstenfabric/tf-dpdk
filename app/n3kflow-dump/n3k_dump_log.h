@@ -13,10 +13,12 @@
 
 int n3k_dump_logtype;
 
+int n3k_dump_log(uint32_t level, uint32_t logtype, const char *format, ...);
+
 #define N3K_DUMP_LOG_PREFIX "N3KFLOW_DUMP"
 
 #define N3K_DUMP_LOG(lvl, msg, ...)                               \
-	rte_log(RTE_LOG_ ## lvl, n3k_dump_logtype,                    \
+	n3k_dump_log(RTE_LOG_ ## lvl, n3k_dump_logtype,                    \
 		N3K_DUMP_LOG_PREFIX ": %s(%d) - " msg "\n", __func__, __LINE__, ##__VA_ARGS__)
 
 #endif /* _N3K_DUMP_LOG_H_ */

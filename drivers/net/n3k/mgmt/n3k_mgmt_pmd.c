@@ -261,7 +261,6 @@ RTE_INIT(n3k_mgmt_init_log)
 	n3k_mgmt_log_register(N3K_MGMT_LOGTYPE_FLOW, "pmd.net.n3k.mgmt.flow");
 	n3k_mgmt_log_register(N3K_MGMT_LOGTYPE_FLOW_PARSE, "pmd.net.n3k.mgmt.flow_parse");
 	n3k_mgmt_log_register(N3K_MGMT_LOGTYPE_MP, "pmd.net.n3k.mgmt.mp");
-	n3k_mgmt_log_register(N3K_MGMT_LOGTYPE_NIOS, "pmd.net.n3k.mgmt.nios");
 	n3k_mgmt_log_register(N3K_MGMT_LOGTYPE_TUNNEL, "pmd.net.n3k.mgmt.tunnel");
 	n3k_mgmt_log_register(N3K_MGMT_LOGTYPE_SMAC, "pmd.net.n3k.mgmt.smac");
 	n3k_mgmt_log_register(N3K_MGMT_LOGTYPE_VPLKP, "pmd.net.n3k.mgmt.vplkp");

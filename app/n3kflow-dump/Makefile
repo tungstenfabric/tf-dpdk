@@ -11,6 +11,7 @@ SRCS-y += n3k_dump_cmdline.c
 SRCS-y += n3k_dump_debug_regs.c
 SRCS-y += n3k_dump_printers.c
 SRCS-y += n3k_dump_utils.c
+SRCS-y += n3k_dump_log.c
 
 include $(RTE_SDK)/mk/rte.vars.mk
 

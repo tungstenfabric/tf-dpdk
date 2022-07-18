@@ -56,18 +56,3 @@ n3k_mgmt_ct_enable_hw_tracking(struct n3k_mgmt_hw *hw)
 	write_ft_scratch(hw, val);
 	N3K_MGMT_LOG(DEFAULT, INFO, "FT/NIOS: switched to HW connection tracking");
 }
-
-void
-n3k_mgmt_ct_enable_sw_tracking(struct n3k_mgmt_hw *hw)
-{
-	uint32_t val;
-
-	val = read_ft_scratch(hw);
-	if (val & N3K_MGMT_CT_TRACKING_MODE_MASK) {
-		N3K_MGMT_LOG(DEFAULT, INFO, "FT/NIOS: SW connection tracking was on");
-		return;
-	}
-	val = val | N3K_MGMT_CT_TRACKING_MODE_MASK;
-	write_ft_scratch(hw, val);
-	N3K_MGMT_LOG(DEFAULT, INFO, "FT/NIOS: switched to SW connection tracking");
-}

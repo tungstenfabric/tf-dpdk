@@ -21,7 +21,6 @@ n3k_mgmt_logtype_to_str(enum n3k_mgmt_logtype type)
 		case N3K_MGMT_LOGTYPE_FLOW: return "flow";
 		case N3K_MGMT_LOGTYPE_FLOW_PARSE: return "flow_parse";
 		case N3K_MGMT_LOGTYPE_MP: return "mp";
-		case N3K_MGMT_LOGTYPE_NIOS: return "nios";
 		case N3K_MGMT_LOGTYPE_TUNNEL: return "tunnel";
 		case N3K_MGMT_LOGTYPE_SMAC: return "smac";
 		case N3K_MGMT_LOGTYPE_VPLKP: return "vplkp";

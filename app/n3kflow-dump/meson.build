@@ -10,6 +10,7 @@ sources = files(
 	'n3k_dump_cmdline.c',
 	'n3k_dump_printers.c',
 	'n3k_dump_json.c',
+	'n3k_dump_log.c',
 	'n3k_dump_utils.c',
 	'n3k_dump_debug_regs.c',
 )

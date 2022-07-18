@@ -25,14 +25,4 @@ struct n3k_mgmt_hw;
  */
 void n3k_mgmt_ct_enable_hw_tracking(struct n3k_mgmt_hw *hw);
 
-/**
- * Enable SW (or OVS) connection tracking in flow tracker.
- *
- * @see n3k_mgmt_enable_hw_ct_tracking()
- *
- * @param hw
- *    N3K hardware handle
- */
-void n3k_mgmt_ct_enable_sw_tracking(struct n3k_mgmt_hw *hw);
-
 #endif // _PMD_NET_N3K_MGMT_CT_H_

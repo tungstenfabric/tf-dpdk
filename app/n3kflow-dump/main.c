@@ -308,7 +308,7 @@ prepare_n3k_entries_request(struct rte_mp_msg *msg,
 		&n3k_req);
 }
 
-static void
+static unsigned
 n3k_dump_handle_request_total_entries(void)
 {
 	struct rte_mp_msg req, resp;
@@ -320,13 +320,17 @@ n3k_dump_handle_request_total_entries(void)
 	ret = n3k_default_request_sync(&req, &resp);
 	if (ret < 0) {
 		N3K_DUMP_LOG(ERR, "failed to execute request; ret=%d", ret);
-		return;
+		return 0;
 	}
 
 	memcpy(&total_entries, resp.param, sizeof(total_entries));
 
-	printf("total_entries = %" PRIu64 "\n", total_entries.total_entries);
-	fflush(NULL);
+	if (!n3k_dump_options.json) {
+		printf("total_entries = %" PRIu64 "\n", total_entries.total_entries);
+		fflush(NULL);
+	}
+
+	return (unsigned)total_entries.total_entries;
 }
 
 static int
@@ -372,12 +376,13 @@ n3k_dump_table_type_to_str(enum n3k_mgmt_mp_request_table table)
 	return "UNKNOWN-TABLE-TYPE";
 }
 
-static void
+static unsigned
 n3k_dump_handle_request_entries(void)
 {
 	struct rte_mp_msg msg;
 	bool more;
 	int ret;
+	unsigned cnt = 0;
 
 	prepare_n3k_entries_request(&msg, n3k_dump_options.table_type, false);
 
@@ -386,7 +391,7 @@ n3k_dump_handle_request_entries(void)
 		N3K_DUMP_LOG(ERR,
 			"sending multi-process message failed; rte_errno = %d",
 			rte_errno);
-		return;
+		return 0;
 	}
 
 	more = true;
@@ -417,6 +422,7 @@ n3k_dump_handle_request_entries(void)
 			printf("\n  ");
 			n3k_dump_print_table_entry_json(&response,
 				n3k_dump_options.table_type);
+			++cnt;
 #endif /* N3K_DUMP_NO_JSON */
 		} else {
 			n3k_dump_print_table_entry(&response,
@@ -429,6 +435,8 @@ n3k_dump_handle_request_entries(void)
 	if (n3k_dump_options.json)
 		printf("\n ]\n");
 #endif /* N3K_DUMP_NO_JSON */
+
+	return cnt;
 }
 
 static void
@@ -475,11 +483,11 @@ show_firmware_version(void) {
 
 #ifndef N3K_DUMP_NO_JSON
 	if (n3k_dump_options.json) {
-		printf(" \"FPGA_BUILD_VER\": { \"version\": %x, \"revision\": %x, \"milestone\": %x, \"HCL\": %s, \"OVS\": %x },\n",
+		printf(" \"FPGA_BUILD_VER\": { \"version\": \"%x\", \"revision\": \"%x\", \"milestone\": \"%x\", \"HCL\": \"%s\", \"OVS\": \"%x\" },\n",
 				build_version.version, build_version.revision, build_version.milestone,
 				build_version.hcl_id == 0x0C ? "true" : "false", build_version.ovs);
 
-		printf(" \"FPGA_BUILD_DATE\": { \"day\": %x, \"month\": %x, \"year\": %x },\n",
+		printf(" \"FPGA_BUILD_DATE\": { \"day\": %hhu, \"month\": %hhu, \"year\": %hu },\n",
 				build_date.day, build_date.month, build_date.year);
 	} else {
 #endif /* N3K_DUMP_NO_JSON */
@@ -500,8 +508,13 @@ n3k_dump_handle_request_json(void) {
 
 	switch (n3k_dump_options.action_type) {
 	case N3K_DUMP_REQUEST_TABLE:
-		if (!n3k_dump_options.only_entries_cnt)
-			n3k_dump_handle_request_entries();
+		if (!n3k_dump_options.only_entries_cnt) {
+			unsigned total_entries = n3k_dump_handle_request_total_entries();
+			unsigned total_flows = n3k_dump_handle_request_entries();
+			unsigned total_mirror_entries = total_entries - total_flows;
+            printf(", \"entry_count\": { \"total\": %u, \"flows\": %u, \"mirror\": %u}",
+                total_entries, total_flows, total_mirror_entries);
+        }
 		break;
 	case N3K_DUMP_REQUEST_VF0_STATS:
 		n3k_dump_handle_request_vf0_stats();

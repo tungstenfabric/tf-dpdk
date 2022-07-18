@@ -2015,6 +2015,7 @@ bond_ethdev_start(struct rte_eth_dev *eth_dev)
 
 	/* start polling if needed */
 	if (internals->link_status_polling_enabled) {
+		RTE_BOND_LOG(INFO, "Link status change monitor interval %d, A", internals->link_status_polling_interval_ms);
 		rte_eal_alarm_set(
 			internals->link_status_polling_interval_ms * 1000,
 			bond_ethdev_slave_link_status_change_monitor,
@@ -2367,6 +2368,8 @@ bond_ethdev_slave_link_status_change_monitor(void *cb_arg)
 				internals->slaves[i].last_link_status =
 						slave_ethdev->data->dev_link.link_status;
 
+				RTE_BOND_LOG(INFO, "Slave[%d] Link status changed to %d", i, slave_ethdev->data->dev_link.link_status);
+
 				bond_ethdev_lsc_event_callback(internals->slaves[i].port_id,
 						RTE_ETH_EVENT_INTR_LSC,
 						&bonded_ethdev->data->port_id,
@@ -2376,10 +2379,12 @@ bond_ethdev_slave_link_status_change_monitor(void *cb_arg)
 		rte_spinlock_unlock(&internals->lock);
 	}
 
-	if (polling_slave_found)
+	if (polling_slave_found) {
+		RTE_BOND_LOG(INFO, "Link status change monitor interval %d, B", internals->link_status_polling_interval_ms);
 		/* Set alarm to continue monitoring link status of slave ethdev's */
 		rte_eal_alarm_set(internals->link_status_polling_interval_ms * 1000,
 				bond_ethdev_slave_link_status_change_monitor, cb_arg);
+	}
 }
 
 static int
