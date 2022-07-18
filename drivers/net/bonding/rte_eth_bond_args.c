@@ -215,19 +215,23 @@ int
 bond_ethdev_parse_socket_id_kvarg(const char *key __rte_unused,
 		const char *value, void *extra_args)
 {
-	int socket_id;
+	long socket_id;
 	char *endptr;
 
 	if (value == NULL || extra_args == NULL)
 		return -1;
 
 	errno = 0;
-	socket_id = (int)strtol(value, &endptr, 10);
-	if (*endptr != 0 || errno != 0 || socket_id < -1)
+	socket_id = strtol(value, &endptr, 10);
+	if (*endptr != 0 || errno != 0)
 		return -1;
 
-	*(int *)extra_args = socket_id;
-	return 0;
+	/* validate socket id value */
+	if (socket_id >= 0 && socket_id < RTE_MAX_NUMA_NODES) {
+		*(int *)extra_args = (int)socket_id;
+		return 0;
+	}
+	return -1;
 }
 
 int
