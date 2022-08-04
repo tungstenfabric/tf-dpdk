@@ -3197,7 +3197,7 @@ static int
 bond_alloc(struct rte_vdev_device *dev, uint8_t mode)
 {
 	const char *name = rte_vdev_device_name(dev);
-	int socket_id = dev->device.numa_node;
+	uint8_t socket_id = dev->device.numa_node;
 	struct bond_dev_private *internals = NULL;
 	struct rte_eth_dev *eth_dev = NULL;
 	uint32_t vlan_filter_bmp_size;
@@ -3318,9 +3318,9 @@ bond_probe(struct rte_vdev_device *dev)
 	const char *name;
 	struct bond_dev_private *internals;
 	struct rte_kvargs *kvlist;
-	uint8_t bonding_mode /*, agg_mode*/;
+	uint8_t bonding_mode;
+	int arg_count, port_id;
 	int socket_id;
-	int  arg_count, port_id;
 	uint8_t agg_mode;
 	struct rte_eth_dev *eth_dev;
 
