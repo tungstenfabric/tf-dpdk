@@ -22,6 +22,7 @@
 #define N3K_VDEV_VFS_KVARG  ("vfs")
 #define N3K_VDEV_MGMT_KVARG ("mgmt")
 #define N3K_VDEV_LAG_KVARG  ("lag")
+#define N3K_VDEV_MAC_KVARG  ("mac")
 
 #define N3K_VDEV_LIST_DELIM ","
 
@@ -30,6 +31,7 @@ static const char *pmd_n3k_init_valid_arguments[] = {
 	N3K_VDEV_VFS_KVARG,
 	N3K_VDEV_MGMT_KVARG,
 	N3K_VDEV_LAG_KVARG,
+	N3K_VDEV_MAC_KVARG,
 	NULL
 };
 
@@ -242,12 +244,93 @@ n3k_vdev_try_parse_lag_kvarg(
 	return 0;
 }
 
+static int
+n3k_vdev_parse_mac_id(const char *vf_str, void *extra_args)
+{
+	struct n3k_vdev_args *args;
+
+	if (!extra_args)
+		return -EINVAL;
+
+	args = extra_args;
+
+	if (args->mac_count >= N3K_PHY_REPRESENTORS_COUNT){
+		N3K_VDEV_LOG(DEFAULT, ERR, "Too many mac addresses. Number of possible mac addresses %d", N3K_PHY_REPRESENTORS_COUNT);
+		return -ERANGE;
+	}
+
+	if( rte_ether_unformat_addr(vf_str, &args->macs[args->mac_count]) )
+	{
+		N3K_VDEV_LOG(DEFAULT, ERR, "This <%s> may be not valid mac address", vf_str);
+		return -EINVAL;
+	}
+
+	args->mac_count++;
+
+	return 0;
+}
+
+static int
+n3k_vdev_parse_mac_kvarg(const char *key __rte_unused, const char *value,
+	void *extra_args)
+{
+	struct n3k_vdev_args *args;
+	int ret = 0;
+
+	if (!value || !extra_args)
+		return -1;
+
+	args = extra_args;
+
+	ret = n3k_parse_kvargs_list(value, args, n3k_vdev_parse_mac_id);
+	if (ret) {
+		N3K_VDEV_LOG(DEFAULT, ERR, "Parsing of mac argument failed");
+		return ret;
+	}
+
+	return 0;
+}
+
+static int
+n3k_vdev_try_parse_mac_kvarg(
+	struct rte_kvargs *kvlist, const char *dev_name, struct n3k_vdev_args *args)
+{
+	int ret = 0;
+	unsigned int arg_count = 0;
+
+	if(args)
+	{
+		args->mac_count = 0;
+		memset(args->macs, 0, sizeof(args->macs));
+	}
+
+	arg_count = rte_kvargs_count(kvlist, N3K_VDEV_MAC_KVARG);
+	if (arg_count != 1) {
+		//nothing to do, no mac argument
+		return 0;
+	}
+
+	ret = rte_kvargs_process(kvlist, N3K_VDEV_MAC_KVARG,
+		&n3k_vdev_parse_mac_kvarg, args);
+	if (ret) {
+		N3K_VDEV_LOG(DEFAULT, ERR, "MAC address parsing for %s failed", dev_name);
+		return ret;
+	}
+
+	return 0;
+}
+
 int
 n3k_vdev_args_parse(struct rte_vdev_device *dev, struct n3k_vdev_args *args)
 {
 	struct rte_kvargs *kvlist;
 	const char *name;
 	int ret = 0;
+
+	if (!dev) {
+		N3K_VDEV_LOG(DEFAULT, ERR, "Unknown device");
+		return -EINVAL;
+	}
 
 	name = rte_vdev_device_name(dev);
 
@@ -258,6 +341,8 @@ n3k_vdev_args_parse(struct rte_vdev_device *dev, struct n3k_vdev_args *args)
 		N3K_VDEV_LOG(DEFAULT, ERR, "Failed to parse arguments for %s", name);
 		return -EINVAL;
 	}
+
+	N3K_VDEV_LOG(DEFAULT, DEBUG, "Arguments: <%s>", rte_vdev_device_args(dev));
 
 	ret = n3k_vdev_try_parse_pf_kvarg(kvlist, name, args);
 	if (ret)
@@ -272,6 +357,10 @@ n3k_vdev_args_parse(struct rte_vdev_device *dev, struct n3k_vdev_args *args)
 		goto exit;
 
 	ret = n3k_vdev_try_parse_lag_kvarg(kvlist, name, args);
+	if (ret)
+		goto exit;
+
+	ret = n3k_vdev_try_parse_mac_kvarg(kvlist, name, args);
 	if (ret)
 		goto exit;
 

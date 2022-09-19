@@ -331,6 +331,8 @@ n3k_vdev_dev_init(struct rte_eth_dev *eth_dev, void *init_params)
 		return -ENOMEM;
 	}
 
+	*(eth_dev->data->mac_addrs) = params->mac;
+
 	return 0;
 }
 
