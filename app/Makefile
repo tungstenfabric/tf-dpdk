@@ -30,8 +30,7 @@ endif
 
 ifeq ($(CONFIG_RTE_LIBRTE_N3K_PMD),y)
 DIRS-y += n3kflow-dump
-# TODO: Enable after properly handling cmocka in tf-dev-env
-# DIRS-y += n3k-ut
+DIRS-y += n3k-ut
 DIRS-y += test-n3k-flows
 DIRS-y += n3k-flr-test-app
 DIRS-y += n3k-info
